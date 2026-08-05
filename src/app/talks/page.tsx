@@ -23,7 +23,10 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function TalksPage() {
   const locale = await getRequestLocale();
-  const t = (key: Parameters<typeof translate>[1]) => translate(locale, key);
+  const t = (
+    key: Parameters<typeof translate>[1],
+    values?: Record<string, string | number>,
+  ) => translate(locale, key, values);
   await connectToDatabase();
   const documents = await TalkModel.find().sort({ updatedAt: -1 }).exec();
   const talks = documents.map(serializeTalk);
@@ -85,7 +88,22 @@ export default async function TalksPage() {
                 </div>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                   <span>{talkLanguageLabel(locale, talk.language)}</span>
-                  <span>{t("fiveParticipants")}</span>
+                  <span>
+                    {t("castSummary", {
+                      ai: talk.participants.filter((item) => item.kind === "ai").length,
+                      human: talk.participants.filter((item) => item.kind === "human").length,
+                      open: talk.participants.filter((item) => item.kind === "unassigned").length,
+                    })}
+                  </span>
+                  <span>
+                    {t(
+                      talk.moderator.kind === "ai"
+                        ? "moderatorAi"
+                        : talk.moderator.kind === "human"
+                          ? "moderatorHuman"
+                          : "moderatorNone",
+                    )}
+                  </span>
                   <span>{t("updated")} {formatDate(talk.updatedAt, locale)}</span>
                 </div>
               </Link>

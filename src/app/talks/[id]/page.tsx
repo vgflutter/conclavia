@@ -11,6 +11,7 @@ import {
   type TranslationKey,
 } from "@/i18n/translations";
 import { connectToDatabase } from "@/lib/mongodb";
+import { getLlmModel, type LlmModelId } from "@/lib/llm-models";
 import { serializeTalk } from "@/lib/serialize-talk";
 import { TalkModel } from "@/models/Talk";
 
@@ -25,6 +26,16 @@ function formatDate(value: string, locale: Locale): string {
     dateStyle: "long",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatModel(modelId: LlmModelId, locale: Locale): string {
+  const model = getLlmModel(modelId);
+  const provider = translate(
+    locale,
+    model.provider === "openai" ? "providerOpenAI" : "providerGemini",
+  );
+
+  return `${provider} · ${model.label}`;
 }
 
 export async function generateMetadata({ params }: TalkPageProps): Promise<Metadata> {
@@ -43,7 +54,10 @@ export async function generateMetadata({ params }: TalkPageProps): Promise<Metad
 export default async function TalkPage({ params }: TalkPageProps) {
   const { id } = await params;
   const locale = await getRequestLocale();
-  const t = (key: TranslationKey) => translate(locale, key);
+  const t = (
+    key: TranslationKey,
+    values?: Record<string, string | number>,
+  ) => translate(locale, key, values);
 
   if (!Types.ObjectId.isValid(id)) {
     notFound();
@@ -92,6 +106,9 @@ export default async function TalkPage({ params }: TalkPageProps) {
               </p>
             )}
           </div>
+          <Link href={`/talks/${talk.id}/run`} className="button-primary shrink-0">
+            {t("runTalk")}
+          </Link>
         </div>
         <dl className="mt-6 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-100 pt-5 text-xs text-slate-500">
           <div className="flex gap-1">
@@ -113,27 +130,71 @@ export default async function TalkPage({ params }: TalkPageProps) {
           </div>
           <div className="space-y-4">
             {talk.participants.map((participant, index) => (
-              <article key={`${participant.name}-${index}`} className="card p-5 sm:p-6">
+              <article key={`${participant.kind}-${participant.name}-${index}`} className="card p-5 sm:p-6">
                 <div className="flex items-start gap-3">
                   <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#e4eee7] text-sm font-bold text-[#295c43]">
                     {index + 1}
                   </span>
                   <div>
-                    <h3 className="font-semibold">{participant.name}</h3>
-                    <p className="mt-0.5 text-sm text-slate-500">{participant.role}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold">
+                        {participant.name || t("seatNumber", { number: index + 1 })}
+                      </h3>
+                      <span className="rounded-full bg-[#edf4ef] px-2 py-0.5 text-[11px] font-semibold text-[#295c43]">
+                        {participant.kind === "human"
+                          ? t("typeHuman")
+                          : participant.kind === "unassigned"
+                            ? t("typeUnassigned")
+                            : t("typeAi")}
+                      </span>
+                    </div>
+                    {participant.role && (
+                      <p className="mt-0.5 text-sm text-slate-500">{participant.role}</p>
+                    )}
+                    {participant.kind === "ai" && (
+                      <p className="mt-1 text-xs font-medium text-slate-500">
+                        {t("participantModel", {
+                          model: formatModel(
+                            participant.modelOverride ?? talk.settings.defaultModel,
+                            locale,
+                          ),
+                        })}
+                      </p>
+                    )}
                   </div>
                 </div>
 
+                {participant.kind === "unassigned" ? (
+                  <p className="mt-5 rounded-lg bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-500">
+                    {t("unassignedDescription")}
+                  </p>
+                ) : (
                 <dl className="mt-5 space-y-4">
                   <div>
                     <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      {t("perspective")}
+                      {participant.kind === "human"
+                        ? t("humanBrief")
+                        : participant.perspectiveMode === "automatic"
+                          ? t("automaticGuidance")
+                          : participant.perspectiveMode === "random"
+                            ? t("randomConstraints")
+                            : t("perspective")}
                     </dt>
-                    <dd className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-                      {participant.perspectivePrompt}
-                    </dd>
+                    {participant.perspectivePrompt ? (
+                      <dd className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                        {participant.perspectivePrompt}
+                      </dd>
+                    ) : (
+                      <dd className="mt-1 text-sm italic leading-6 text-slate-500">
+                        {participant.kind === "human"
+                          ? t("notRequired")
+                          : participant.perspectiveMode === "random"
+                            ? t("randomFreedom")
+                            : t("automaticFreedom")}
+                      </dd>
+                    )}
                   </div>
-                  {participant.speakingStylePrompt && (
+                  {participant.kind === "ai" && participant.speakingStylePrompt && (
                     <div>
                       <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                         {t("speakingStyle")}
@@ -144,7 +205,9 @@ export default async function TalkPage({ params }: TalkPageProps) {
                     </div>
                   )}
                 </dl>
+                )}
 
+                {participant.kind === "ai" && (
                 <dl className="mt-5 grid grid-cols-2 gap-3 border-t border-slate-100 pt-5 sm:grid-cols-4">
                   {[
                     [t("assertiveness"), participant.assertiveness],
@@ -158,17 +221,34 @@ export default async function TalkPage({ params }: TalkPageProps) {
                     </div>
                   ))}
                 </dl>
+                )}
               </article>
             ))}
           </div>
         </section>
 
-        <aside className="card p-5 lg:sticky lg:top-6">
-          <h2 className="text-lg font-semibold">{t("talkSettings")}</h2>
-          <dl className="mt-5 divide-y divide-slate-100 text-sm">
+        <aside className="space-y-4 lg:sticky lg:top-6">
+          <section className="card p-5">
+            <h2 className="text-lg font-semibold">{t("talkSettings")}</h2>
+            <dl className="mt-5 divide-y divide-slate-100 text-sm">
             <div className="flex items-center justify-between gap-4 py-3 first:pt-0">
               <dt className="text-slate-500">{t("maximumTurns")}</dt>
               <dd className="font-semibold">{talk.settings.maxTurns}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-4 py-3">
+              <dt className="text-slate-500">{t("targetDuration")}</dt>
+              <dd className="font-semibold">
+                {talk.settings.targetDurationMinutes} {t("minutes")}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between gap-4 py-3">
+              <dt className="text-slate-500">{t("defaultModel")}</dt>
+              <dd
+                className="max-w-40 text-right font-semibold"
+                title={talk.settings.defaultModel}
+              >
+                {formatModel(talk.settings.defaultModel, locale)}
+              </dd>
             </div>
             <div className="flex items-center justify-between gap-4 py-3">
               <dt className="text-slate-500">{t("interruptions")}</dt>
@@ -182,7 +262,83 @@ export default async function TalkPage({ params }: TalkPageProps) {
                 {talk.settings.seekCommonGround ? t("sought") : t("notRequired")}
               </dd>
             </div>
-          </dl>
+            </dl>
+          </section>
+
+          <section className="card p-5">
+            <h2 className="text-lg font-semibold">{t("moderation")}</h2>
+            {talk.moderator.kind === "none" ? (
+              <p className="mt-3 text-sm leading-6 text-slate-500">
+                {t("moderatorNoneHelp")}
+              </p>
+            ) : (
+              <div className="mt-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-semibold">{talk.moderator.name}</h3>
+                  <span className="rounded-full bg-[#edf4ef] px-2 py-0.5 text-[11px] font-semibold text-[#295c43]">
+                    {talk.moderator.kind === "ai"
+                      ? t("moderatorAi")
+                      : t("moderatorHuman")}
+                  </span>
+                </div>
+                {talk.moderator.role && (
+                  <p className="mt-1 text-sm text-slate-500">{talk.moderator.role}</p>
+                )}
+                <dl className="mt-4 divide-y divide-slate-100 text-sm">
+                  <div className="flex items-center justify-between gap-4 py-2 first:pt-0">
+                    <dt className="text-slate-500">{t("moderatorStyle")}</dt>
+                    <dd className="font-semibold">
+                      {t(
+                        talk.moderator.style === "challenging"
+                          ? "styleChallenging"
+                          : talk.moderator.style === "facilitating"
+                            ? "styleFacilitating"
+                            : "styleNeutral",
+                      )}
+                    </dd>
+                  </div>
+                  {talk.moderator.kind === "ai" && (
+                    <div className="py-2">
+                      <dt className="text-slate-500">{t("moderatorModel")}</dt>
+                      <dd className="mt-1 font-semibold">
+                        {formatModel(
+                          talk.moderator.modelOverride ?? talk.settings.defaultModel,
+                          locale,
+                        )}
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+                {talk.moderator.instructions && (
+                  <div className="mt-4 border-t border-slate-100 pt-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      {t("moderatorInstructions")}
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                      {talk.moderator.instructions}
+                    </p>
+                  </div>
+                )}
+                <div className="mt-4 flex flex-wrap gap-1.5 border-t border-slate-100 pt-4">
+                  {talk.moderator.canInterrupt && (
+                    <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
+                      {t("moderatorCanInterrupt")}
+                    </span>
+                  )}
+                  {talk.moderator.manageTime && (
+                    <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
+                      {t("moderatorManageTime")}
+                    </span>
+                  )}
+                  {talk.moderator.summarizeAtEnd && (
+                    <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600">
+                      {t("moderatorSummarize")}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
         </aside>
       </div>
     </div>
