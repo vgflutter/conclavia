@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Types } from "mongoose";
 import { notFound } from "next/navigation";
 
+import { DeleteTalkButton } from "@/components/DeleteTalkButton";
 import { getRequestLocale } from "@/i18n/server";
 import {
   talkLanguageLabel,
@@ -13,6 +14,7 @@ import {
 import { connectToDatabase } from "@/lib/mongodb";
 import { getLlmModel, type LlmModelId } from "@/lib/llm-models";
 import { serializeTalk } from "@/lib/serialize-talk";
+import type { StudioThemeId } from "@/lib/studio-themes";
 import { TalkModel } from "@/models/Talk";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +38,17 @@ function formatModel(modelId: LlmModelId, locale: Locale): string {
   );
 
   return `${provider} · ${model.label}`;
+}
+
+function studioThemeKey(theme: StudioThemeId): TranslationKey {
+  const keys: Record<StudioThemeId, TranslationKey> = {
+    pop_garage: "studioThemeGarage",
+    pulp_podcast: "studioThemePulp",
+    rooftop_hangout: "studioThemeRooftop",
+    late_night: "studioThemeLateNight",
+    neon_playground: "studioThemeNeon",
+  };
+  return keys[theme];
 }
 
 export async function generateMetadata({ params }: TalkPageProps): Promise<Metadata> {
@@ -106,9 +119,21 @@ export default async function TalkPage({ params }: TalkPageProps) {
               </p>
             )}
           </div>
-          <Link href={`/talks/${talk.id}/run`} className="button-primary shrink-0">
-            {t("runTalk")}
-          </Link>
+          <div className="flex shrink-0 flex-col gap-2 sm:items-stretch">
+            <Link href={`/talks/${talk.id}/run`} className="button-primary">
+              {t("runTalk")}
+            </Link>
+            <Link href={`/talks/${talk.id}/edit`} className="button-secondary text-center">
+              {t("editTalk")}
+            </Link>
+            <Link
+              href={`/talks/${talk.id}/edit?duplicate=1`}
+              className="button-secondary text-center"
+            >
+              {t("duplicateTalk")}
+            </Link>
+            <DeleteTalkButton talkId={talk.id} talkTitle={talk.title} />
+          </div>
         </div>
         <dl className="mt-6 flex flex-wrap gap-x-6 gap-y-2 border-t border-slate-100 pt-5 text-xs text-slate-500">
           <div className="flex gap-1">
@@ -130,12 +155,15 @@ export default async function TalkPage({ params }: TalkPageProps) {
           </div>
           <div className="space-y-4">
             {talk.participants.map((participant, index) => (
-              <article key={`${participant.kind}-${participant.name}-${index}`} className="card p-5 sm:p-6">
-                <div className="flex items-start gap-3">
+              <details
+                key={`${participant.kind}-${participant.name}-${index}`}
+                className="card group overflow-hidden"
+              >
+                <summary className="flex cursor-pointer list-none items-start gap-3 p-5 sm:p-6">
                   <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-[#e4eee7] text-sm font-bold text-[#295c43]">
                     {index + 1}
                   </span>
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-semibold">
                         {participant.name || t("seatNumber", { number: index + 1 })}
@@ -147,6 +175,15 @@ export default async function TalkPage({ params }: TalkPageProps) {
                             ? t("typeUnassigned")
                             : t("typeAi")}
                       </span>
+                      {participant.kind !== "unassigned" && (
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                          {t(
+                            participant.sex === "male"
+                              ? "participantMale"
+                              : "participantFemale",
+                          )}
+                        </span>
+                      )}
                     </div>
                     {participant.role && (
                       <p className="mt-0.5 text-sm text-slate-500">{participant.role}</p>
@@ -162,7 +199,15 @@ export default async function TalkPage({ params }: TalkPageProps) {
                       </p>
                     )}
                   </div>
-                </div>
+                  <span
+                    aria-hidden="true"
+                    className="mt-1 text-slate-400 transition group-open:rotate-180"
+                  >
+                    ⌄
+                  </span>
+                </summary>
+
+                <div className="border-t border-slate-100 px-5 pb-5 sm:px-6 sm:pb-6">
 
                 {participant.kind === "unassigned" ? (
                   <p className="mt-5 rounded-lg bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-500">
@@ -204,6 +249,26 @@ export default async function TalkPage({ params }: TalkPageProps) {
                       </dd>
                     </div>
                   )}
+                  {participant.kind === "ai" && participant.goals && (
+                    <div>
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        {t("participantGoals")}
+                      </dt>
+                      <dd className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                        {participant.goals}
+                      </dd>
+                    </div>
+                  )}
+                  {participant.kind === "ai" && participant.nonNegotiables && (
+                    <div>
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        {t("participantNonNegotiables")}
+                      </dt>
+                      <dd className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                        {participant.nonNegotiables}
+                      </dd>
+                    </div>
+                  )}
                 </dl>
                 )}
 
@@ -222,7 +287,8 @@ export default async function TalkPage({ params }: TalkPageProps) {
                   ))}
                 </dl>
                 )}
-              </article>
+                </div>
+              </details>
             ))}
           </div>
         </section>
@@ -242,6 +308,12 @@ export default async function TalkPage({ params }: TalkPageProps) {
               </dd>
             </div>
             <div className="flex items-center justify-between gap-4 py-3">
+              <dt className="text-slate-500">{t("studioTheme")}</dt>
+              <dd className="max-w-40 text-right font-semibold">
+                {t(studioThemeKey(talk.settings.studioTheme))}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between gap-4 py-3">
               <dt className="text-slate-500">{t("defaultModel")}</dt>
               <dd
                 className="max-w-40 text-right font-semibold"
@@ -251,15 +323,23 @@ export default async function TalkPage({ params }: TalkPageProps) {
               </dd>
             </div>
             <div className="flex items-center justify-between gap-4 py-3">
-              <dt className="text-slate-500">{t("interruptions")}</dt>
+              <dt className="text-slate-500">{t("talkPace")}</dt>
               <dd className="font-semibold">
-                {talk.settings.allowInterruptions ? t("allowed") : t("disabled")}
+                {t(
+                  talk.settings.pace === "fast"
+                    ? "paceFast"
+                    : talk.settings.pace === "deep"
+                      ? "paceDeep"
+                      : "paceBalanced",
+                )}
               </dd>
             </div>
             <div className="flex items-center justify-between gap-4 py-3 last:pb-0">
-              <dt className="text-slate-500">{t("commonGround")}</dt>
+              <dt className="text-slate-500">{t("turnDynamics")}</dt>
               <dd className="font-semibold">
-                {talk.settings.seekCommonGround ? t("sought") : t("notRequired")}
+                {talk.settings.allowInterruptions
+                  ? t("openExchange")
+                  : t("orderedTurns")}
               </dd>
             </div>
             </dl>

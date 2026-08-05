@@ -1,9 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
 import { useTranslations } from "@/i18n/I18nProvider";
+import type { TranslationKey } from "@/i18n/translations";
 import {
   DEFAULT_LLM_MODEL,
   getLlmModel,
@@ -12,24 +14,67 @@ import {
   type LlmProvider,
 } from "@/lib/llm-models";
 import { MAX_RUN_TURNS } from "@/lib/talk-run-compatibility";
+import {
+  DEFAULT_STUDIO_THEME,
+  STUDIO_THEMES,
+  type StudioThemeId,
+} from "@/lib/studio-themes";
 import type {
   ModeratorKind,
   Participant,
   ParticipantKind,
   PerspectiveMode,
   TalkInput,
+  TalkPace,
   TalkResponse,
 } from "@/types/talk";
 
 type CastPreset = "allAi" | "hybrid" | "allHuman" | "unassigned";
+type CastGenerationMode = "manual" | "suggested" | "random";
+
+const DURATION_OPTIONS = [3, 5] as const;
+
+const STUDIO_THEME_COPY: Record<
+  StudioThemeId,
+  { title: TranslationKey; description: TranslationKey }
+> = {
+  pop_garage: {
+    title: "studioThemeGarage",
+    description: "studioThemeGarageHelp",
+  },
+  pulp_podcast: {
+    title: "studioThemePulp",
+    description: "studioThemePulpHelp",
+  },
+  rooftop_hangout: {
+    title: "studioThemeRooftop",
+    description: "studioThemeRooftopHelp",
+  },
+  late_night: {
+    title: "studioThemeLateNight",
+    description: "studioThemeLateNightHelp",
+  },
+  neon_playground: {
+    title: "studioThemeNeon",
+    description: "studioThemeNeonHelp",
+  },
+};
+
+function recommendedMaxTurns(minutes: number, pace: TalkPace): number {
+  const turnsPerMinute = pace === "fast" ? 2.5 : pace === "deep" ? 1.5 : 2;
+  return Math.min(MAX_RUN_TURNS, Math.max(5, Math.round(minutes * turnsPerMinute)));
+}
 
 function createAiParticipant(index: number, locale: "en" | "it"): Participant {
   return {
     kind: "ai",
+    sex: index % 2 === 0 ? "female" : "male",
     name: `AI ${index + 1}`,
     role: locale === "it" ? "Partecipante AI" : "AI participant",
     perspectiveMode: "automatic",
     perspectivePrompt: "",
+    goals: "",
+    nonNegotiables: "",
     speakingStylePrompt: "",
     modelOverride: undefined,
     assertiveness: 50,
@@ -39,9 +84,10 @@ function createAiParticipant(index: number, locale: "en" | "it"): Participant {
   };
 }
 
-function createHumanParticipant(): Participant {
+function createHumanParticipant(index: number): Participant {
   return {
     kind: "human",
+    sex: index % 2 === 0 ? "female" : "male",
     name: "",
     role: "",
     perspectiveMode: "custom",
@@ -55,9 +101,9 @@ function createHumanParticipant(): Participant {
   };
 }
 
-function createUnassignedParticipant(): Participant {
+function createUnassignedParticipant(index: number): Participant {
   return {
-    ...createHumanParticipant(),
+    ...createHumanParticipant(index),
     kind: "unassigned",
   };
 }
@@ -81,11 +127,31 @@ function createInitialTalk(locale: "en" | "it"): TalkInput {
     status: "draft",
     settings: {
       maxTurns: 20,
-      targetDurationMinutes: 30,
+      targetDurationMinutes: 5,
+      studioTheme: DEFAULT_STUDIO_THEME,
       defaultModel: DEFAULT_LLM_MODEL,
       allowInterruptions: true,
-      seekCommonGround: true,
+      pace: "balanced",
     },
+  };
+}
+
+function editableTalk(
+  talk: TalkResponse,
+  duplicate: boolean,
+  locale: "en" | "it",
+): TalkInput {
+  return {
+    title: duplicate
+      ? `${talk.title} — ${locale === "it" ? "copia" : "copy"}`
+      : talk.title,
+    topic: talk.topic,
+    description: talk.description,
+    language: talk.language,
+    participants: talk.participants.map((participant) => ({ ...participant })),
+    moderator: { ...talk.moderator },
+    status: talk.status,
+    settings: { ...talk.settings },
   };
 }
 
@@ -93,6 +159,11 @@ interface ApiResponse {
   talk?: TalkResponse;
   error?: string;
   issues?: string[];
+}
+
+interface CastApiResponse {
+  participants?: Participant[];
+  error?: string;
 }
 
 interface ScoreFieldProps {
@@ -173,12 +244,27 @@ function participantIsComplete(participant: Participant): boolean {
   );
 }
 
-export function TalkForm() {
+interface TalkFormProps {
+  initialTalk?: TalkResponse;
+  mode?: "create" | "edit" | "duplicate";
+}
+
+export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
   const router = useRouter();
   const { locale, t } = useTranslations();
-  const [talk, setTalk] = useState<TalkInput>(() => createInitialTalk(locale));
+  const [talk, setTalk] = useState<TalkInput>(() =>
+    initialTalk
+      ? editableTalk(initialTalk, mode === "duplicate", locale)
+      : createInitialTalk(locale),
+  );
   const [activeParticipant, setActiveParticipant] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [castGenerationMode, setCastGenerationMode] =
+    useState<CastGenerationMode>("manual");
+  const [castGenerating, setCastGenerating] = useState<"all" | number | null>(
+    null,
+  );
+  const [castError, setCastError] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const participant = talk.participants[activeParticipant];
 
@@ -216,13 +302,17 @@ export function TalkForm() {
 
   function setParticipantKind(kind: ParticipantKind) {
     if (kind === "unassigned") {
-      replaceParticipant(activeParticipant, createUnassignedParticipant());
+      replaceParticipant(
+        activeParticipant,
+        createUnassignedParticipant(activeParticipant),
+      );
       return;
     }
 
     if (kind === "human") {
       replaceParticipant(activeParticipant, {
-        ...createHumanParticipant(),
+        ...createHumanParticipant(activeParticipant),
+        sex: participant.sex,
         name: participant.kind === "unassigned" ? "" : participant.name,
         role: participant.kind === "unassigned" ? "" : participant.role,
         perspectivePrompt:
@@ -233,6 +323,7 @@ export function TalkForm() {
 
     replaceParticipant(activeParticipant, {
       ...createAiParticipant(activeParticipant, locale),
+      sex: participant.sex,
       name: participant.name || `AI ${activeParticipant + 1}`,
       role:
         participant.role ||
@@ -243,15 +334,72 @@ export function TalkForm() {
   function applyCastPreset(preset: CastPreset) {
     const participants = Array.from({ length: 5 }, (_, index) => {
       if (preset === "allAi") return createAiParticipant(index, locale);
-      if (preset === "allHuman") return createHumanParticipant();
-      if (preset === "unassigned") return createUnassignedParticipant();
+      if (preset === "allHuman") return createHumanParticipant(index);
+      if (preset === "unassigned") return createUnassignedParticipant(index);
       return index < 3
         ? createAiParticipant(index, locale)
-        : createHumanParticipant();
+        : createHumanParticipant(index);
     });
 
     setTalk((current) => ({ ...current, participants }));
+    setCastGenerationMode("manual");
+    setCastError(null);
     setActiveParticipant(0);
+  }
+
+  async function generateCast(
+    mode: Exclude<CastGenerationMode, "manual">,
+    participantIndex?: number,
+  ) {
+    if (!talk.topic.trim()) {
+      setCastError(t("castNeedsTopic"));
+      return;
+    }
+
+    setCastError(null);
+    setCastGenerationMode(mode);
+    setCastGenerating(participantIndex ?? "all");
+    try {
+      const response = await fetch("/api/cast/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode,
+          participantIndex,
+          title: talk.title,
+          topic: talk.topic,
+          description: talk.description,
+          language: talk.language,
+          model: talk.settings.defaultModel,
+          participants: talk.participants,
+        }),
+      });
+      const payload = (await response.json()) as CastApiResponse;
+      if (!response.ok || !payload.participants) {
+        setCastError(t("castGenerationError"));
+        return;
+      }
+
+      if (participantIndex === undefined) {
+        setTalk((current) => ({ ...current, participants: payload.participants! }));
+        setActiveParticipant(0);
+      } else {
+        const replacement = payload.participants[0];
+        if (!replacement) {
+          setCastError(t("castGenerationError"));
+          return;
+        }
+        replaceParticipant(participantIndex, {
+          ...replacement,
+          sex: talk.participants[participantIndex].sex,
+          modelOverride: talk.participants[participantIndex].modelOverride,
+        });
+      }
+    } catch {
+      setCastError(t("networkError"));
+    } finally {
+      setCastGenerating(null);
+    }
   }
 
   function setAllAiPerspectiveModes(mode: PerspectiveMode) {
@@ -271,8 +419,8 @@ export function TalkForm() {
         name:
           kind === "ai"
             ? locale === "it"
-              ? "Moderatore AI"
-              : "AI moderator"
+              ? "Conduttore AI"
+              : "AI host"
             : kind === "human"
               ? ""
               : undefined,
@@ -329,14 +477,6 @@ export function TalkForm() {
       return;
     }
 
-    if (
-      talk.status === "ready" &&
-      talk.participants.some((item) => item.kind === "unassigned")
-    ) {
-      setErrors([t("readyNeedsAssigned")]);
-      return;
-    }
-
     if (talk.moderator.kind !== "none" && !talk.moderator.name?.trim()) {
       setErrors([t("completeModerator")]);
       return;
@@ -344,11 +484,21 @@ export function TalkForm() {
 
     setSubmitting(true);
     try {
-      const response = await fetch("/api/talks", {
-        method: "POST",
+      const payloadTalk: TalkInput = {
+        ...talk,
+        status: talk.participants.some((item) => item.kind === "unassigned")
+          ? "draft"
+          : "ready",
+      };
+      const editing = mode === "edit" && initialTalk;
+      const response = await fetch(
+        editing ? `/api/talks/${initialTalk.id}` : "/api/talks",
+        {
+        method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(talk),
-      });
+        body: JSON.stringify(payloadTalk),
+      },
+      );
       const payload = (await response.json()) as ApiResponse;
 
       if (!response.ok || !payload.talk) {
@@ -478,20 +628,9 @@ export function TalkForm() {
               placeholder={t("descriptionPlaceholder")}
             />
           </div>
-          <div>
-            <label htmlFor="status" className="label">{t("status")}</label>
-            <select
-              id="status"
-              value={talk.status}
-              onChange={(event) =>
-                setTalk({ ...talk, status: event.target.value as TalkInput["status"] })
-              }
-              className="input"
-            >
-              <option value="draft">{t("statusDraft")}</option>
-              <option value="ready">{t("statusReady")}</option>
-            </select>
-          </div>
+          <p className="sm:col-span-2 text-xs leading-5 text-slate-500">
+            {t("statusAutomaticHelp")}
+          </p>
         </div>
       </section>
 
@@ -516,29 +655,69 @@ export function TalkForm() {
         </div>
 
         <div className="card mb-4 p-4 sm:p-5">
-          <div className="mb-3">
-            <h3 className="text-sm font-semibold">{t("quickSetup")}</h3>
-            <p className="mt-1 text-xs text-slate-500">{t("quickSetupHelp")}</p>
-          </div>
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-            {(
-              [
-                ["allAi", "presetAllAi"],
-                ["hybrid", "presetHybrid"],
-                ["allHuman", "presetAllHuman"],
-                ["unassigned", "presetUnassigned"],
-              ] as const
-            ).map(([preset, label]) => (
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="max-w-xl">
+              <h3 className="text-sm font-semibold">{t("castCreation")}</h3>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                {t("castCreationHelp")}
+              </p>
+            </div>
+            <div className="grid shrink-0 grid-cols-2 gap-2">
               <button
-                key={preset}
                 type="button"
-                onClick={() => applyCastPreset(preset)}
-                className="rounded-lg border border-[#dfe4dc] bg-white px-3 py-2.5 text-left text-sm font-medium transition hover:border-[#8fa497] hover:bg-slate-50"
+                disabled={castGenerating !== null}
+                onClick={() => void generateCast("suggested")}
+                className="button-primary px-3"
               >
-                {t(label)}
+                {castGenerating === "all" && castGenerationMode === "suggested"
+                  ? t("castGenerating")
+                  : t("castSuggested")}
               </button>
-            ))}
+              <button
+                type="button"
+                disabled={castGenerating !== null}
+                onClick={() => void generateCast("random")}
+                className="button-secondary px-3"
+              >
+                {castGenerating === "all" && castGenerationMode === "random"
+                  ? t("castGenerating")
+                  : t("castRandom")}
+              </button>
+            </div>
           </div>
+          <p className="mt-3 text-xs leading-5 text-[#295c43]">
+            {t("castAlwaysEditable")}
+          </p>
+          {castError && (
+            <p role="alert" className="mt-3 text-xs font-medium text-red-700">
+              {castError}
+            </p>
+          )}
+
+          <details className="mt-4 border-t border-slate-100 pt-4">
+            <summary className="cursor-pointer text-xs font-semibold text-slate-600">
+              {t("quickSetup")}
+            </summary>
+            <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+              {(
+                [
+                  ["allAi", "presetAllAi"],
+                  ["hybrid", "presetHybrid"],
+                  ["allHuman", "presetAllHuman"],
+                  ["unassigned", "presetUnassigned"],
+                ] as const
+              ).map(([preset, label]) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => applyCastPreset(preset)}
+                  className="rounded-lg border border-[#dfe4dc] bg-white px-3 py-2.5 text-left text-sm font-medium transition hover:border-[#8fa497] hover:bg-slate-50"
+                >
+                  {t(label)}
+                </button>
+              ))}
+            </div>
+          </details>
         </div>
 
         <div className="card overflow-hidden">
@@ -593,9 +772,28 @@ export function TalkForm() {
                   {participant.name || participantKindLabel(participant.kind)}
                 </h3>
               </div>
-              <span className="rounded-full bg-[#edf4ef] px-2.5 py-1 text-xs font-semibold text-[#295c43]">
-                {participantKindLabel(participant.kind)}
-              </span>
+              <div className="flex items-center gap-2">
+                {participant.kind === "ai" && (
+                  <button
+                    type="button"
+                    disabled={castGenerating !== null}
+                    onClick={() =>
+                      void generateCast(
+                        castGenerationMode === "random" ? "random" : "suggested",
+                        activeParticipant,
+                      )
+                    }
+                    className="rounded-full border border-[#b8c9bd] bg-white px-2.5 py-1 text-xs font-semibold text-[#295c43] transition hover:bg-[#edf4ef] disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {castGenerating === activeParticipant
+                      ? t("castGenerating")
+                      : t("rerollGuest")}
+                  </button>
+                )}
+                <span className="rounded-full bg-[#edf4ef] px-2.5 py-1 text-xs font-semibold text-[#295c43]">
+                  {participantKindLabel(participant.kind)}
+                </span>
+              </div>
             </div>
 
             <fieldset>
@@ -666,6 +864,32 @@ export function TalkForm() {
                     />
                   </div>
                 </div>
+
+                <fieldset>
+                  <legend className="label">{t("participantSex")}</legend>
+                  <div className="grid max-w-md grid-cols-2 gap-2">
+                    {(["female", "male"] as const).map((sex) => (
+                      <button
+                        key={sex}
+                        type="button"
+                        aria-pressed={participant.sex === sex}
+                        onClick={() =>
+                          updateParticipant(activeParticipant, "sex", sex)
+                        }
+                        className={`rounded-lg border px-3 py-2.5 text-sm font-semibold transition ${
+                          participant.sex === sex
+                            ? "border-[#295c43] bg-[#edf4ef] text-[#295c43]"
+                            : "border-[#dfe4dc] bg-white text-slate-600 hover:bg-slate-50"
+                        }`}
+                      >
+                        {t(sex === "female" ? "participantFemale" : "participantMale")}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-slate-500">
+                    {t("participantSexHelp")}
+                  </p>
+                </fieldset>
 
                 {participant.kind === "human" ? (
                   <div>
@@ -774,6 +998,49 @@ export function TalkForm() {
                         </span>
                       </summary>
                       <div className="space-y-5 border-t border-[#dfe4dc] p-4">
+                        <div className="rounded-lg bg-white px-3 py-2 text-xs leading-5 text-slate-600 ring-1 ring-slate-200">
+                          {t("identityMemoryHelp")}
+                        </div>
+                        <div className="grid gap-5 sm:grid-cols-2">
+                          <div>
+                            <label htmlFor={`participant-${activeParticipant}-goals`} className="label">
+                              {t("participantGoals")} <span className="font-normal text-slate-400">({t("optional")})</span>
+                            </label>
+                            <textarea
+                              id={`participant-${activeParticipant}-goals`}
+                              rows={3}
+                              value={participant.goals ?? ""}
+                              onChange={(event) =>
+                                updateParticipant(
+                                  activeParticipant,
+                                  "goals",
+                                  event.target.value,
+                                )
+                              }
+                              className="input resize-y"
+                              placeholder={t("participantGoalsPlaceholder")}
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor={`participant-${activeParticipant}-non-negotiables`} className="label">
+                              {t("participantNonNegotiables")} <span className="font-normal text-slate-400">({t("optional")})</span>
+                            </label>
+                            <textarea
+                              id={`participant-${activeParticipant}-non-negotiables`}
+                              rows={3}
+                              value={participant.nonNegotiables ?? ""}
+                              onChange={(event) =>
+                                updateParticipant(
+                                  activeParticipant,
+                                  "nonNegotiables",
+                                  event.target.value,
+                                )
+                              }
+                              className="input resize-y"
+                              placeholder={t("participantNonNegotiablesPlaceholder")}
+                            />
+                          </div>
+                        </div>
                         <div>
                           <label htmlFor={`participant-${activeParticipant}-model`} className="label">
                             {t("modelOverride")}
@@ -954,27 +1221,6 @@ export function TalkForm() {
                   placeholder={t("moderatorRolePlaceholder")}
                 />
               </div>
-              <div>
-                <label htmlFor="moderator-style" className="label">{t("moderatorStyle")}</label>
-                <select
-                  id="moderator-style"
-                  value={talk.moderator.style}
-                  onChange={(event) =>
-                    setTalk({
-                      ...talk,
-                      moderator: {
-                        ...talk.moderator,
-                        style: event.target.value as TalkInput["moderator"]["style"],
-                      },
-                    })
-                  }
-                  className="input"
-                >
-                  <option value="neutral">{t("styleNeutral")}</option>
-                  <option value="challenging">{t("styleChallenging")}</option>
-                  <option value="facilitating">{t("styleFacilitating")}</option>
-                </select>
-              </div>
               {talk.moderator.kind === "ai" && (
                 <div>
                   <label htmlFor="moderator-model" className="label">{t("moderatorModel")}</label>
@@ -1030,6 +1276,52 @@ export function TalkForm() {
               </div>
             </div>
 
+            <fieldset>
+              <legend className="label">{t("moderatorStyle")}</legend>
+              <p className="mb-3 text-xs leading-5 text-slate-500">
+                {t("moderatorStyleHelp")}
+              </p>
+              <div className="grid gap-3 md:grid-cols-3">
+                {(
+                  [
+                    ["neutral", "styleNeutral", "styleNeutralHelp"],
+                    ["challenging", "styleChallenging", "styleChallengingHelp"],
+                    ["facilitating", "styleFacilitating", "styleFacilitatingHelp"],
+                  ] as const
+                ).map(([value, label, help]) => {
+                  const selected = talk.moderator.style === value;
+                  return (
+                    <label
+                      key={value}
+                      className={`cursor-pointer rounded-xl border p-4 transition ${
+                        selected
+                          ? "border-[#295c43] bg-[#edf4ef] ring-2 ring-[#295c43]/15"
+                          : "border-[#dfe4dc] bg-white hover:bg-slate-50"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="moderatorStyle"
+                        value={value}
+                        checked={selected}
+                        onChange={() =>
+                          setTalk({
+                            ...talk,
+                            moderator: { ...talk.moderator, style: value },
+                          })
+                        }
+                        className="sr-only"
+                      />
+                      <span className="block text-sm font-semibold">{t(label)}</span>
+                      <span className="mt-1 block text-xs leading-5 text-slate-500">
+                        {t(help)}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
+
             <div className="grid gap-3 sm:grid-cols-3">
               {(
                 [
@@ -1065,142 +1357,243 @@ export function TalkForm() {
       </section>
 
       <section className="card p-5 sm:p-6">
-        <div className="mb-6">
+        <div className="mb-5">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#295c43]">
             {t("step4")}
           </p>
           <h2 className="mt-1 text-xl font-semibold">{t("talkSettings")}</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            {t("talkSettingsIntro")}
+          </p>
         </div>
-        <div className="grid gap-6 sm:grid-cols-2">
-          <div>
-            <label htmlFor="maxTurns" className="label">{t("maximumTurns")}</label>
-            <input
-              id="maxTurns"
-              type="number"
-              min="1"
-              max={MAX_RUN_TURNS}
-              required
-              value={talk.settings.maxTurns}
-              onChange={(event) =>
-                setTalk({
-                  ...talk,
-                  settings: { ...talk.settings, maxTurns: Number(event.target.value) },
-                })
-              }
-              className="input"
-            />
-          </div>
-          <div>
-            <label htmlFor="targetDuration" className="label">
-              {t("targetDuration")} ({t("minutes")})
-            </label>
-            <input
-              id="targetDuration"
-              type="number"
-              min="1"
-              required
-              value={talk.settings.targetDurationMinutes}
-              onChange={(event) =>
-                setTalk({
-                  ...talk,
-                  settings: {
-                    ...talk.settings,
-                    targetDurationMinutes: Number(event.target.value),
-                  },
-                })
-              }
-              className="input"
-            />
-          </div>
-
-          <fieldset className="sm:col-span-2">
-            <legend className="label">{t("defaultModel")}</legend>
-            <p className="mb-3 text-xs leading-5 text-slate-500">{t("defaultModelHelp")}</p>
-            <div className="grid gap-3 md:grid-cols-2">
-              {LLM_MODELS.map((model) => {
-                const selected = talk.settings.defaultModel === model.id;
+        <div className="space-y-6">
+          <fieldset id="studio-theme">
+            <legend className="label">{t("studioTheme")}</legend>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+              {STUDIO_THEMES.map((theme) => {
+                const copy = STUDIO_THEME_COPY[theme.id];
+                const selected = talk.settings.studioTheme === theme.id;
                 return (
                   <label
-                    key={model.id}
-                    className={`cursor-pointer rounded-xl border p-4 transition ${
+                    key={theme.id}
+                    className={`group cursor-pointer overflow-hidden rounded-xl border bg-white transition ${
                       selected
-                        ? "border-[#295c43] bg-[#edf4ef] ring-2 ring-[#295c43]/15"
-                        : "border-[#dfe4dc] bg-white hover:border-[#a9b9ae] hover:bg-slate-50"
+                        ? "border-[#295c43] ring-2 ring-[#295c43]/20"
+                        : "border-[#dfe4dc] hover:border-[#a9b9ae]"
                     }`}
                   >
                     <input
                       type="radio"
-                      name="defaultModel"
-                      value={model.id}
+                      name="studioTheme"
+                      value={theme.id}
                       checked={selected}
                       onChange={() =>
                         setTalk({
                           ...talk,
-                          settings: { ...talk.settings, defaultModel: model.id },
+                          settings: { ...talk.settings, studioTheme: theme.id },
                         })
                       }
                       className="sr-only"
                     />
-                    <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#295c43]">
-                      {providerLabel(model.provider)}
+                    <span className="relative block aspect-[4/3] overflow-hidden bg-slate-950">
+                      <Image
+                        src={theme.image}
+                        alt=""
+                        fill
+                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                        className="object-cover transition duration-300 group-hover:scale-[1.02]"
+                      />
+                      {selected && (
+                        <span className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-[#295c43] text-sm font-bold text-white shadow-lg">
+                          ✓
+                        </span>
+                      )}
                     </span>
-                    <span className="mt-1 block text-sm font-semibold">{model.label}</span>
-                    <code className="mt-1 block text-[11px] text-slate-500">{model.id}</code>
-                    <span className="mt-2 block text-xs leading-5 text-slate-600">
-                      {t(model.descriptionKey)}
+                    <span className="block p-2.5">
+                      <span className="block truncate text-xs font-semibold sm:text-sm">
+                        {t(copy.title)}
+                      </span>
                     </span>
                   </label>
                 );
               })}
             </div>
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              {t(STUDIO_THEME_COPY[talk.settings.studioTheme].description)}
+            </p>
           </fieldset>
 
-          <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#dfe4dc] p-3">
-              <input
-                type="checkbox"
-                checked={talk.settings.allowInterruptions}
+          <div className="grid gap-4 md:grid-cols-3">
+            <div>
+              <label htmlFor="targetDuration" className="label">
+                {t("targetDuration")}
+              </label>
+              <select
+                id="targetDuration"
+                required
+                value={talk.settings.targetDurationMinutes}
                 onChange={(event) =>
                   setTalk({
                     ...talk,
                     settings: {
                       ...talk.settings,
-                      allowInterruptions: event.target.checked,
+                      targetDurationMinutes: Number(event.target.value),
+                      maxTurns: recommendedMaxTurns(
+                        Number(event.target.value),
+                        talk.settings.pace,
+                      ),
                     },
                   })
                 }
-                className="mt-0.5 size-4 accent-[#295c43]"
-              />
-              <span>
-                <span className="block text-sm font-medium">{t("allowInterruptions")}</span>
-                <span className="mt-0.5 block text-xs leading-5 text-slate-500">
-                  {t("allowInterruptionsHelp")}
-                </span>
-              </span>
-            </label>
-            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#dfe4dc] p-3">
-              <input
-                type="checkbox"
-                checked={talk.settings.seekCommonGround}
+                className="input"
+              >
+                {!DURATION_OPTIONS.includes(
+                  talk.settings.targetDurationMinutes as (typeof DURATION_OPTIONS)[number],
+                ) && (
+                  <option value={talk.settings.targetDurationMinutes}>
+                    {talk.settings.targetDurationMinutes} {t("minutes")}
+                  </option>
+                )}
+                {DURATION_OPTIONS.map((minutes) => (
+                  <option key={minutes} value={minutes}>
+                    {minutes} {t("minutes")}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="talkPace" className="label">
+                {t("talkPace")}
+              </label>
+              <select
+                id="talkPace"
+                value={talk.settings.pace}
+                onChange={(event) => {
+                  const pace = event.target.value as TalkPace;
+                  setTalk({
+                    ...talk,
+                    settings: {
+                      ...talk.settings,
+                      pace,
+                      maxTurns: recommendedMaxTurns(
+                        talk.settings.targetDurationMinutes,
+                        pace,
+                      ),
+                    },
+                  });
+                }}
+                className="input"
+              >
+                <option value="fast">{t("paceFast")}</option>
+                <option value="balanced">{t("paceBalanced")}</option>
+                <option value="deep">{t("paceDeep")}</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="defaultModel" className="label">
+                {t("defaultModel")}
+              </label>
+              <select
+                id="defaultModel"
+                value={talk.settings.defaultModel}
                 onChange={(event) =>
                   setTalk({
                     ...talk,
                     settings: {
                       ...talk.settings,
-                      seekCommonGround: event.target.checked,
+                      defaultModel: event.target.value as LlmModelId,
                     },
                   })
                 }
-                className="mt-0.5 size-4 accent-[#295c43]"
-              />
-              <span>
-                <span className="block text-sm font-medium">{t("seekCommonGround")}</span>
-                <span className="mt-0.5 block text-xs leading-5 text-slate-500">
-                  {t("seekCommonGroundHelp")}
-                </span>
-              </span>
-            </label>
+                className="input"
+              >
+                <ModelOptionGroups
+                  openAiLabel={providerLabel("openai")}
+                  geminiLabel={providerLabel("gemini")}
+                />
+              </select>
+            </div>
           </div>
+          <p className="-mt-3 text-xs leading-5 text-slate-500">
+            {t("formatDefaultsHelp")}
+          </p>
+
+          <details className="rounded-xl border border-[#dfe4dc] bg-slate-50 p-4">
+            <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+              {t("advancedRuntime")}
+            </summary>
+            <div className="mt-4 grid gap-5 md:grid-cols-[minmax(0,1fr)_16rem]">
+              <fieldset>
+                <legend className="label">{t("turnDynamics")}</legend>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {(
+                    [
+                      [false, "orderedTurns", "orderedTurnsHelp"],
+                      [true, "openExchange", "openExchangeHelp"],
+                    ] as const
+                  ).map(([value, label, help]) => {
+                    const selected = talk.settings.allowInterruptions === value;
+                    return (
+                      <label
+                        key={String(value)}
+                        className={`cursor-pointer rounded-xl border p-4 transition ${
+                          selected
+                            ? "border-[#295c43] bg-[#edf4ef] ring-2 ring-[#295c43]/15"
+                            : "border-[#dfe4dc] bg-white hover:bg-slate-50"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="turnDynamics"
+                          checked={selected}
+                          onChange={() =>
+                            setTalk({
+                              ...talk,
+                              settings: {
+                                ...talk.settings,
+                                allowInterruptions: value,
+                              },
+                            })
+                          }
+                          className="sr-only"
+                        />
+                        <span className="block text-sm font-semibold">{t(label)}</span>
+                        <span className="mt-1 block text-xs leading-5 text-slate-500">
+                          {t(help)}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+              <div>
+                <label htmlFor="maxTurns" className="label">
+                  {t("maximumTurns")}
+                </label>
+                <input
+                  id="maxTurns"
+                  type="number"
+                  min="1"
+                  max={MAX_RUN_TURNS}
+                  required
+                  value={talk.settings.maxTurns}
+                  onChange={(event) =>
+                    setTalk({
+                      ...talk,
+                      settings: {
+                        ...talk.settings,
+                        maxTurns: Number(event.target.value),
+                      },
+                    })
+                  }
+                  className="input"
+                />
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  {t("maximumTurnsHelp")}
+                </p>
+              </div>
+            </div>
+          </details>
         </div>
       </section>
 

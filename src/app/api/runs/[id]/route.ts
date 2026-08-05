@@ -37,7 +37,7 @@ export async function GET(_request: Request, context: RouteContext) {
               status: "failed",
               error: "The previous generation was interrupted and can be retried",
             },
-            $unset: { generationStartedAt: 1 },
+            $unset: { generationStartedAt: 1, activeTurn: 1 },
           },
           { new: true },
         ).exec()) ?? run;

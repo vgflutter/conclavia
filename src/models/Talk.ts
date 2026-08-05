@@ -12,6 +12,10 @@ import type {
   TalkRecord,
 } from "@/types/talk";
 import { DEFAULT_LLM_MODEL, LLM_MODEL_IDS } from "@/lib/llm-models";
+import {
+  DEFAULT_STUDIO_THEME,
+  STUDIO_THEME_IDS,
+} from "@/lib/studio-themes";
 
 const scoreField = {
   type: Number,
@@ -29,6 +33,11 @@ const participantSchema = new Schema<Participant>(
       required: true,
       default: "ai",
     },
+    sex: {
+      type: String,
+      enum: ["female", "male"],
+      required: true,
+    },
     name: { type: String, default: "", trim: true },
     role: { type: String, default: "", trim: true },
     perspectiveMode: {
@@ -38,6 +47,8 @@ const participantSchema = new Schema<Participant>(
       default: "custom",
     },
     perspectivePrompt: { type: String, default: "", trim: true },
+    goals: { type: String, trim: true },
+    nonNegotiables: { type: String, trim: true },
     speakingStylePrompt: { type: String, trim: true },
     modelOverride: { type: String, enum: LLM_MODEL_IDS, trim: true },
     assertiveness: scoreField,
@@ -106,6 +117,12 @@ const talkSchema = new Schema<TalkRecord>(
         min: 1,
         validate: Number.isInteger,
       },
+      studioTheme: {
+        type: String,
+        enum: STUDIO_THEME_IDS,
+        required: true,
+        default: DEFAULT_STUDIO_THEME,
+      },
       defaultModel: {
         type: String,
         enum: LLM_MODEL_IDS,
@@ -114,7 +131,12 @@ const talkSchema = new Schema<TalkRecord>(
         trim: true,
       },
       allowInterruptions: { type: Boolean, required: true },
-      seekCommonGround: { type: Boolean, required: true },
+      pace: {
+        type: String,
+        enum: ["fast", "balanced", "deep"],
+        required: true,
+        default: "balanced",
+      },
     },
   },
   { timestamps: true },

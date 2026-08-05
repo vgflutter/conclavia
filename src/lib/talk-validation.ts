@@ -4,8 +4,10 @@ import type {
   ModeratorStyle,
   Participant,
   ParticipantKind,
+  ParticipantSex,
   PerspectiveMode,
   TalkInput,
+  TalkPace,
   TalkSettings,
   TalkStatus,
 } from "@/types/talk";
@@ -15,6 +17,10 @@ import {
   type LlmModelId,
 } from "@/lib/llm-models";
 import { MAX_RUN_TURNS } from "@/lib/talk-run-compatibility";
+import {
+  DEFAULT_STUDIO_THEME,
+  isStudioThemeId,
+} from "@/lib/studio-themes";
 
 type ValidationResult =
   | { success: true; data: TalkInput }
@@ -99,6 +105,23 @@ function participantKind(
   return "ai";
 }
 
+function participantSex(
+  value: unknown,
+  index: number,
+  field: string,
+  issues: string[],
+): ParticipantSex {
+  if (value === undefined) {
+    return index % 2 === 0 ? "female" : "male";
+  }
+  if (value === "female" || value === "male") {
+    return value;
+  }
+
+  issues.push(`${field} must be female or male`);
+  return index % 2 === 0 ? "female" : "male";
+}
+
 function perspectiveMode(
   value: unknown,
   field: string,
@@ -167,6 +190,7 @@ function parseParticipant(
 
   return {
     kind,
+    sex: participantSex(participant.sex, index, `${field}.sex`, issues),
     name,
     role,
     perspectiveMode: kind === "ai" ? mode : "custom",
@@ -190,6 +214,18 @@ function parseParticipant(
         ? optionalString(
             participant.speakingStylePrompt,
             `${field}.speakingStylePrompt`,
+            issues,
+          )
+        : undefined,
+    goals:
+      kind === "ai"
+        ? optionalString(participant.goals, `${field}.goals`, issues)
+        : undefined,
+    nonNegotiables:
+      kind === "ai"
+        ? optionalString(
+            participant.nonNegotiables,
+            `${field}.nonNegotiables`,
             issues,
           )
         : undefined,
@@ -318,12 +354,14 @@ function parseSettings(value: unknown, issues: string[]): TalkSettings {
     issues.push(`settings.maxTurns must not exceed ${MAX_RUN_TURNS}`);
   }
 
-  const targetDurationMinutes = settings.targetDurationMinutes ?? 30;
+  const targetDurationMinutes = settings.targetDurationMinutes ?? 5;
   if (
     !Number.isInteger(targetDurationMinutes) ||
     (targetDurationMinutes as number) < 1
   ) {
     issues.push("settings.targetDurationMinutes must be a positive integer");
+  } else if ((targetDurationMinutes as number) > 5) {
+    issues.push("settings.targetDurationMinutes must not exceed 5 for LiveAvatar");
   }
 
   const rawDefaultModel =
@@ -342,24 +380,38 @@ function parseSettings(value: unknown, issues: string[]): TalkSettings {
     issues.push("settings.allowInterruptions must be a boolean");
   }
 
-  if (typeof settings.seekCommonGround !== "boolean") {
-    issues.push("settings.seekCommonGround must be a boolean");
+  let pace: TalkPace = "balanced";
+  if (settings.pace === "fast" || settings.pace === "deep") {
+    pace = settings.pace;
+  } else if (settings.pace !== undefined && settings.pace !== "balanced") {
+    issues.push("settings.pace must be fast, balanced, or deep");
+  }
+
+  const studioTheme =
+    settings.studioTheme === undefined
+      ? DEFAULT_STUDIO_THEME
+      : isStudioThemeId(settings.studioTheme)
+        ? settings.studioTheme
+        : DEFAULT_STUDIO_THEME;
+  if (
+    settings.studioTheme !== undefined &&
+    !isStudioThemeId(settings.studioTheme)
+  ) {
+    issues.push("settings.studioTheme must be one of the supported themes");
   }
 
   return {
     maxTurns: Number.isInteger(maxTurns) ? (maxTurns as number) : 1,
     targetDurationMinutes: Number.isInteger(targetDurationMinutes)
       ? (targetDurationMinutes as number)
-      : 30,
+      : 5,
+    studioTheme,
     defaultModel,
     allowInterruptions:
       typeof settings.allowInterruptions === "boolean"
         ? settings.allowInterruptions
         : false,
-    seekCommonGround:
-      typeof settings.seekCommonGround === "boolean"
-        ? settings.seekCommonGround
-        : false,
+    pace,
   };
 }
 

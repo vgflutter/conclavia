@@ -9,6 +9,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@heygen/liveavatar-web-sdk": "^0.0.18",
     "mongoose": "8.24.2",
     "next": "16.3.0",
     "react": "19.2.8",

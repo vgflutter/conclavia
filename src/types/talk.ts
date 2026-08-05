@@ -1,17 +1,23 @@
 import type { LlmModelId } from "@/lib/llm-models";
+import type { StudioThemeId } from "@/lib/studio-themes";
 
 export type TalkStatus = "draft" | "ready";
 export type PerspectiveMode = "custom" | "automatic" | "random";
 export type ParticipantKind = "ai" | "human" | "unassigned";
+export type ParticipantSex = "female" | "male";
 export type ModeratorKind = "none" | "ai" | "human";
 export type ModeratorStyle = "neutral" | "challenging" | "facilitating";
+export type TalkPace = "fast" | "balanced" | "deep";
 
 export interface Participant {
   kind: ParticipantKind;
+  sex: ParticipantSex;
   name: string;
   role: string;
   perspectiveMode: PerspectiveMode;
   perspectivePrompt: string;
+  goals?: string;
+  nonNegotiables?: string;
   speakingStylePrompt?: string;
   modelOverride?: LlmModelId;
   assertiveness: number;
@@ -35,9 +41,10 @@ export interface ModeratorConfiguration {
 export interface TalkSettings {
   maxTurns: number;
   targetDurationMinutes: number;
+  studioTheme: StudioThemeId;
   defaultModel: LlmModelId;
   allowInterruptions: boolean;
-  seekCommonGround: boolean;
+  pace: TalkPace;
 }
 
 export interface TalkInput {

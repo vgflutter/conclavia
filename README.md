@@ -3,48 +3,72 @@
 </p>
 
 <p align="center">
-  An open-source workspace for configuring and running structured multi-participant talks.
+  An open-source control room for live-format talks with AI and human guests.
 </p>
 
 # Conclavia
 
-Conclavia will become a multi-agent debate platform. The current MVP defines and persists a talk, then runs an incremental text-only debate between five configured AI participants.
+Conclavia is designed to reproduce a live current-affairs programme: five in-studio seats can be occupied by AI agents or people, while an optional human or AI host controls the editorial direction. The current MVP persists the complete format, runs an evolving multi-agent debate, and presents it inside an experimental virtual studio with automatic camera direction.
 
-The application does not yet include authentication, realtime communication, audio, video, or avatars. Human participant turns and human moderation are configured but not yet executable.
+The main automatic broadcast pre-connects the next AI speaker on demand, composites the synchronized video stream into the five-seat studio, and sends each generated intervention to the correct avatar. LiveAvatar supplies the voice, motion, expressions, and lip sync; OpenAI or Gemini supplies only the debate content and editorial direction.
 
 ![Conclavia talk configuration](docs/images/talk-configuration.png)
 
+![Conclavia virtual studio with a real LiveAvatar stream](docs/images/studio-avatar-live.png)
+
+![Conclavia studio theme selector](docs/images/studio-themes.png)
+
 ## How the MVP works
 
-1. Create a talk and define its topic, language, duration, and discussion rules.
-2. Configure five seats using a preset or editing each participant individually.
-3. Optionally add an AI moderator and choose the default or per-participant LLM.
-4. Start the text runner and generate one durably persisted intervention at a time.
+1. Create an episode and define its central question, language, real airtime target, and live format.
+2. Build the five-seat cast using AI guests, people, or open draft seats.
+3. Optionally add a host and choose an impartial, confrontational, or synthesizing editorial line.
+4. Open the live studio: an invisible director moves the discussion through positions, central conflict, examination, synthesis, and conclusion.
+5. Follow every intervention while it streams; in automatic mode the next useful guest can begin preparing from claims that are already explicit before the current speaker finishes.
+6. At selected milestones, an off-air editorial checkpoint determines what evolved, what still needs testing, and whether an honest conclusion is available.
+7. Every completed message, its conversational intent, and the updated editorial state are persisted in MongoDB.
+8. A person selected by the director receives a persistent on-air input desk; their intervention then affects the same memories, conflicts, and conclusion as an AI contribution.
+9. The main live action pre-connects each LiveAvatar as the director calls that speaker, routes every AI contribution to the correct synchronized video and voice stream, keeps the current speaker in the foreground, and exposes one stop action for the complete broadcast.
 
-Session creation does not call a provider. Each generated intervention is a separate request, is immediately written to MongoDB, and can be resumed after a refresh or failure.
+Creating the persisted run does not call a provider. Starting the studio enables the broadcast; a paid LiveAvatar session opens only when its AI speaker is first assigned a turn. Each generated intervention is a separate LLM request, while selected editorial checkpoints make an additional structured-output request. Automatic mode prewarms the planned speaker during text generation and begins playing the saved intervention as soon as it is ready while the server prepares what comes next, reducing dead air.
 
-## Features
+## Current MVP
 
-- Create and persist talk configurations
-- Configure exactly five seats as AI participants, human guests, or unassigned draft slots
-- Start from quick cast presets and edit one compact participant panel at a time
-- Define each perspective manually, delegate it to a future AI, or request a random one
-- Add an optional human or AI moderator without consuming a participant seat
-- Set a talk to `draft` or `ready`
-- Browse saved talks and inspect their complete configuration
-- Validate input on the server and again at the Mongoose schema boundary
-- Switch the interface between English and Italian
-- Detect the initial interface language from the browser
-- Choose English or Italian as the language of a talk
-- Set a target duration and choose an explicit default LLM model for the talk
-- Choose between two OpenAI models and two Google Gemini models
-- Override the default model for individual participants with the same constrained catalog
-- Create persistent text sessions without making an LLM call immediately
-- Generate one intervention at a time with OpenAI or Gemini and persist every result
-- Continue automatically, pause after the current intervention, retry failures, and resume after reload
-- Generate an opening and optional final summary when an AI moderator is configured
-- Record the provider, exact model, and token usage for each intervention
-- Responsive loading, empty, error, and not-found states
+### Configuration
+
+- Persist, edit, duplicate, inspect, and delete talks in MongoDB.
+- Configure exactly five seats as AI guests, people, or open draft slots.
+- Generate a coherent or surprising cast from the central question, then edit or regenerate any guest.
+- Choose a custom, automatic, or random perspective and keep each AI guest’s goals, boundaries, style, traits, model, and identity stable.
+- Add an optional AI or human host with an independent editorial line.
+- Choose Italian or English, duration, pace, studio theme, and a constrained OpenAI/Gemini model catalog.
+- Derive `draft` or `ready` automatically and validate data both server-side and at the Mongoose boundary.
+
+### Conversation engine
+
+- Select the next useful speaker dynamically instead of following a fixed round robin.
+- Persist the discussion thread, participant memories, contested claims, open questions, agreements, conflicts, and a semantic floor queue.
+- Vary intentions and duration across replies, challenges, interruptions, questions, clarifications, arguments, and partial agreements.
+- Move through positions → conflict → examination → synthesis → conclusion, with periodic editorial checkpoints and an explicit outcome dossier.
+- Stream and persist every contribution, prepare the following turn while the current one is on air, and pause cleanly for guided human input.
+- Freeze the complete talk snapshot inside every run and record model and usage metadata for each generated intervention.
+
+### Live studio
+
+- Present the talk in a responsive 16:9 five-seat studio with five selectable visual themes.
+- Connect LiveAvatar FULL sessions on demand and use their synchronized video, neural voice, expressions, and lip sync—without browser TTS or a static broadcast fallback.
+- Keep stable, language-appropriate avatars and voices; respect each configured guest’s sex.
+- Bring the active speaker and addressee forward automatically, with wide, close-up, and two-person framing overrides.
+- Show `On air` only after media is active, expose one immediate stop action, and keep technical telemetry collapsed until needed.
+- Support one local human camera after explicit browser permission while credentials, avatar allow-lists, and timeouts remain server-side.
+
+## UX principles
+
+- **Useful defaults first:** the central question, AI-assisted cast, duration, pace, model, and theme are enough for most episodes.
+- **Everything remains editable:** automation starts the configuration; it never locks the user into an AI choice.
+- **Complexity on demand:** cast composition, turn dynamics, safety ceilings, participant traits, and LiveAvatar telemetry remain available behind focused controls.
+- **Costs are explicit:** a clear preflight dialog shows duration, possible LiveAvatar count, and maximum estimated credits before going live.
+- **Audience and production stay separate:** the default runner is a clean viewing experience; editorial state and provider details live in the control-room view.
 
 ## Tech stack
 
@@ -61,7 +85,8 @@ Session creation does not call a provider. Each generated intervention is a sepa
 | `/talks` | List saved talks |
 | `/talks/new` | Create a talk and configure all five participants |
 | `/talks/[id]` | View a saved talk configuration |
-| `/talks/[id]/run` | Run or resume the persisted text session |
+| `/talks/[id]/edit` | Edit or duplicate a saved configuration |
+| `/talks/[id]/run` | Run or resume the talk inside the virtual studio and control room |
 
 ## API routes
 
@@ -69,17 +94,27 @@ Session creation does not call a provider. Each generated intervention is a sepa
 | --- | --- | --- |
 | `GET` | `/api/talks` | List talks, newest first |
 | `POST` | `/api/talks` | Validate and create a talk |
+| `POST` | `/api/cast/generate` | Generate five AI guests or one replacement with structured output |
 | `GET` | `/api/talks/[id]` | Read one talk |
+| `PATCH` | `/api/talks/[id]` | Validate and update one talk |
+| `DELETE` | `/api/talks/[id]` | Delete one talk and its persisted sessions |
 | `GET` | `/api/talks/[id]/runs` | Read the latest session for a talk |
 | `POST` | `/api/talks/[id]/runs` | Create a session without calling an LLM |
 | `GET` | `/api/runs/[id]` | Read one persisted session |
 | `POST` | `/api/runs/[id]/next` | Generate and persist exactly one intervention |
+| `POST` | `/api/runs/[id]/next/stream` | Stream, then persist, exactly one intervention |
+| `POST` | `/api/runs/[id]/human-turn` | Persist the human contribution currently requested by the director |
+| `GET` | `/api/liveavatar/status` | Read sanitized configuration, credit, and timeout status |
+| `POST` | `/api/liveavatar/sessions` | Mint a short-lived allow-listed LiveAvatar FULL session token |
+| `DELETE` | `/api/liveavatar/sessions/[id]` | Stop the paid LiveAvatar session server-side |
 
 ## Requirements
 
 - Node.js 20.19 or newer
 - npm
 - A reachable MongoDB instance
+- OpenAI and/or Gemini credentials for AI turns
+- A LiveAvatar API key and a plan with enough concurrent sessions for the configured AI cast
 
 ## Installation
 
@@ -140,6 +175,24 @@ The supported model catalog is intentionally explicit:
 | Google / Gemini | Gemini 3.6 Flash | `gemini-3.6-flash` |
 | Google / Gemini | Gemini 3.5 Flash-Lite | `gemini-3.5-flash-lite` |
 
+## LiveAvatar studio configuration
+
+LiveAvatar is required for the broadcast. Static portraits are used only in the offline preview. During a broadcast, each AI seat is replaced by its synchronized LiveAvatar stream the first time that guest is called on air. Add:
+
+```dotenv
+LIVEAVATAR_API_KEY=your_liveavatar_api_key
+LIVEAVATAR_PRODUCTION_ENABLED=true
+LIVEAVATAR_MAX_SESSION_SECONDS=300
+```
+
+The API key is read only by server Route Handlers. The browser receives short-lived session tokens, never the account key. Sessions are disabled unless `LIVEAVATAR_PRODUCTION_ENABLED=true`; duration is clamped server-side to 20–300 seconds. Keep the flag `false` in shared or untrusted environments.
+
+The **Go live** action opens a clear cost preflight and then enables automatic direction. When a turn is planned, its LiveAvatar is pre-connected while the LLM writes; later turns reuse that speaker’s session. Generated text is sent as `avatar.speak_text` over LiveAvatar’s official `agent-control` channel, so LiveAvatar produces the voice and matching lip-synced video. There is no browser voice and no separate OpenAI TTS fallback. The UI declares that the voices are AI-generated.
+
+The server restricts sessions to a curated public avatar catalog, enforces the configured participant sex, uses 480p H.264 to control latency, and configures the LiveAvatar voice pipeline for the talk language and pace. Green backgrounds are removed in the browser through WebGL. A keep-alive protects silent guests while another participant speaks, and every session stops together when the talk ends or reaches the configured limit.
+
+LiveAvatar FULL currently costs 2 credits per active avatar minute. Five AI guests in a five-minute studio therefore have a maximum estimate of 50 credits. An AI moderator also consumes one concurrent session; the total number of AI guests plus an AI moderator cannot exceed five on the current plan. Human seats do not consume LiveAvatar credits.
+
 ## Development commands
 
 ```bash
@@ -151,14 +204,18 @@ npm start
 
 `npm start` serves the optimized application after a successful build.
 
+## Verified baseline
+
+The current MVP has been checked locally with strict linting and a production build. A MongoDB smoke test creates, reads, deletes, and confirms removal of a temporary talk; its principal pages have also been rendered at 390, 768, and 1440 pixels without horizontal overflow. A real LiveAvatar FULL media run confirmed a 480p H.264 video stream at 25 fps with 48 kHz Opus audio, synchronized speech, clean session shutdown, and on-demand speaker connection. These are integration checks, not a committed automated test suite.
+
 ## Project structure
 
 ```text
 src/
 ├── app/                 App Router pages, runner, and API routes
-├── components/          Header, talk form, and text runner
+├── components/          Header, talk form, runner, and virtual studio
 ├── i18n/                Translation catalog and locale handling
-├── lib/                 MongoDB, validation, prompts, and LLM providers
+├── lib/                 MongoDB, prompts, LLM/LiveAvatar adapters, and video compositing
 ├── models/              Mongoose Talk and TalkRun models
 └── types/               Shared strict TypeScript types
 ```
@@ -171,39 +228,53 @@ A talk stores:
 
 - title, topic, optional description, and language
 - exactly five participants
-- `draft` or `ready` status
-- maximum turns, target duration, default model, interruption policy, and common-ground preference
+- automatic `draft` or `ready` status based on whether every seat is complete
+- maximum interventions, planned duration, conversation pace, default model, and guest-interaction policy
+- the selected virtual-studio theme, persisted with the talk and frozen into every new run snapshot
 - creation and update timestamps
 
-Each seat stores its participant type (`ai`, `human`, or `unassigned`). AI participants store a name, role, perspective mode, perspective prompt or optional guidance, optional speaking-style prompt, optional model override, and four integer traits from 0 to 100: assertiveness, patience, interruptiveness, and baseline tension. Human participants store their name, role, and an optional editorial brief. Unassigned seats can be persisted in drafts, while a `ready` talk requires all five seats to be assigned.
+Each assigned seat stores its participant type (`ai` or `human`) and sex (`female` or `male`). AI participants also store a name, role, stable perspective, private objectives, non-negotiable points, speaking style, optional model override, and four integer traits from 0 to 100: assertiveness, patience, interruptiveness, and baseline tension. Human participants store their name, role, sex, and an optional editorial brief. Unassigned seats can be persisted in drafts, while a `ready` talk requires all five seats to be assigned.
 
-The optional moderator is stored separately from the five participants. A moderator can be human or AI and includes identity, moderation style, optional editorial instructions, operational permissions, and an optional model override for AI moderation.
+The optional host is stored separately from the five guests. A host can be human or AI and includes an on-air identity, editorial line, optional production brief, operational permissions, and an optional model override. The editorial line can be impartial, drive open confrontation, or seek mediation and synthesis; it never changes the individual guests’ configured positions.
 
 Perspective modes define how the text runner prompts each AI participant:
 
 - `custom` requires an explicit perspective prompt
-- `automatic` delegates the perspective to a future AI and accepts optional preferences
+- `automatic` delegates the perspective to the selected AI and accepts optional preferences
 - `random` requests a random perspective and accepts optional constraints
 
-During a text session, `automatic` and `random` modes are translated into explicit participant instructions. The generated intervention and its usage metadata are saved after every successful provider call.
+During a text session, `automatic` and `random` modes are translated into stable participant instructions and reinforced by that guest’s private memory. The generated intervention and its usage metadata are saved after every successful provider call.
 
-## Text runner
+## Talk runner and virtual studio
 
-Open `/talks/[id]/run` or select **Run talk** from a saved configuration. Creating a session is free of provider calls. From the session page you can generate one intervention or continue automatically; automatic execution remains a sequence of individually persisted requests rather than one long-running HTTP request.
+Open `/talks/[id]/run` or select **Open live room** from a saved configuration. The single **Go live** action confirms the maximum LiveAvatar cost, creates or resumes the persisted run, and starts automatic direction. The next speaker is pre-connected on demand while the intervention is generated. Each message is individually persisted. As soon as a turn is saved it is sent to the corresponding LiveAvatar while preparation of the following turn continues in parallel. If the next guest already has an independent argument ready, the prompt explicitly avoids pretending it is a reply.
+
+The virtual studio has an offline preview before a run begins. During a run, an AI portrait is replaced by its real LiveAvatar video as soon as that speaker connects. Automatic direction keeps all five seats in frame, raises the speaker currently being heard, and gives the addressee secondary emphasis. The control room can override this behavior with wide, close-up, or two-person framing. The badge shows `On air` only while a LiveAvatar is actually speaking.
+
+The runner treats `maxTurns` as a safety ceiling. The configured duration is an operational airtime budget: every intervention receives an estimated spoken duration, late turns become shorter, and reaching the time or turn ceiling forces an honest editorial close. Structured checkpoints run at selected milestones and may close earlier only after a meaningful minimum and at least one synthesis contribution. A valid ending can be agreement, conditional agreement, clarified disagreement, or an explicitly open outcome. Without an AI host, the result remains an off-air editorial dossier; with a host configured to summarize, the same state drives the on-air closing intervention.
 
 The first runner supports:
 
-- five AI participants in round-robin order
-- no moderator or an AI moderator
-- OpenAI Responses API with explicit low reasoning effort
-- Gemini `generateContent` REST API
+- any mix of five AI and guided human participants selected dynamically by an invisible director
+- no host, an AI host, or a guided human host
+- direct replies, challenges, questions, clarifications, partial agreements, and interruptions with explicit targets
+- independent prepared arguments that do not force an artificial reference to the previous speaker
+- varied reference styles and speaker selection that breaks repetitive back-and-forth pairings
+- persisted positions → conflict → examination → synthesis → conclusion progression
+- structured editorial checkpoints that decide the next objective and conclusion readiness
+- variable word ranges determined by intention and the configured pace
+- speculative next-turn preparation during live streaming, with the completed contribution held durably in MongoDB
+- active AI host interventions during the discussion
+- a semantic floor queue updated by direct calls and editorial checkpoints
+- OpenAI Responses streaming and schema-constrained cast generation
+- Gemini `streamGenerateContent` and schema-constrained cast generation
 - a maximum of 50 participant turns per session
-- durable progress, transcript, failure state, retry, and token usage
-
-Human participant turns and a human moderator are intentionally blocked with a clear UI message until guided human input is implemented.
+- recent-transcript prompting plus a compact persisted discussion state and per-guest memory
+- live text streaming, durable progress, transcript, failure state, retry, and token usage
+- a final conclusion card with answer, agreements, disagreements, conditions, and unresolved questions
 
 ## Current scope
 
-This repository contains real text generation and persistence but intentionally no simulated media behavior or placeholder video components. Future guided human turns, streaming, authentication, and media capabilities can build on the persisted session model.
+This repository contains real text generation, guided human turns, persistence, a local-camera proof, and up to five concurrent lip-synced LiveAvatar sessions. Static portraits are offline previews only and are never used as the audiovisual broadcast fallback. Authentication, microphone ingestion, multi-device guests, and recording remain outside this experimental milestone.
 
-The next functional milestone is guided human participation: pause on a human seat, collect and persist that intervention, then return control to the same round-robin runner. Human moderation can use the same mechanism without changing the five-seat cast model.
+When the director selects a human guest or host, the run enters `waiting_for_human`, exposes an on-air input desk, persists the submitted intervention with `origin: human`, and then returns control to the same shared thread. The browser camera is a visual local preview only; the next functional milestone is microphone capture plus realtime transport for remote people and synchronized audio/video direction.

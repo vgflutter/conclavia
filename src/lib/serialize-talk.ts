@@ -4,6 +4,10 @@ import {
   DEFAULT_LLM_MODEL,
   isLlmModelId,
 } from "@/lib/llm-models";
+import {
+  DEFAULT_STUDIO_THEME,
+  normalizeStudioTheme,
+} from "@/lib/studio-themes";
 
 export function serializeTalk(talk: TalkDocument): TalkResponse {
   return {
@@ -12,15 +16,23 @@ export function serializeTalk(talk: TalkDocument): TalkResponse {
     topic: talk.topic,
     description: talk.description,
     language: talk.language,
-    participants: talk.participants.map((participant) => ({
+    participants: talk.participants.map((participant, index) => ({
       kind:
         participant.kind === "human" || participant.kind === "unassigned"
           ? participant.kind
           : "ai",
+      sex:
+        participant.sex === "female" || participant.sex === "male"
+          ? participant.sex
+          : index % 2 === 0
+            ? "female"
+            : "male",
       name: participant.name,
       role: participant.role,
       perspectiveMode: participant.perspectiveMode ?? "custom",
       perspectivePrompt: participant.perspectivePrompt,
+      goals: participant.goals,
+      nonNegotiables: participant.nonNegotiables,
       speakingStylePrompt: participant.speakingStylePrompt,
       modelOverride: isLlmModelId(participant.modelOverride)
         ? participant.modelOverride
@@ -54,11 +66,17 @@ export function serializeTalk(talk: TalkDocument): TalkResponse {
     settings: {
       maxTurns: talk.settings.maxTurns,
       targetDurationMinutes: talk.settings.targetDurationMinutes ?? 30,
+      studioTheme: normalizeStudioTheme(
+        talk.settings.studioTheme ?? DEFAULT_STUDIO_THEME,
+      ),
       defaultModel: isLlmModelId(talk.settings.defaultModel)
         ? talk.settings.defaultModel
         : DEFAULT_LLM_MODEL,
       allowInterruptions: talk.settings.allowInterruptions,
-      seekCommonGround: talk.settings.seekCommonGround,
+      pace:
+        talk.settings.pace === "fast" || talk.settings.pace === "deep"
+          ? talk.settings.pace
+          : "balanced",
     },
     createdAt: talk.createdAt.toISOString(),
     updatedAt: talk.updatedAt.toISOString(),

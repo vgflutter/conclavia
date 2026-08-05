@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import { NextResponse } from "next/server";
 
 import { connectToDatabase } from "@/lib/mongodb";
+import { createInitialDiscussionState } from "@/lib/talk-director";
 import { isProviderConfigured } from "@/lib/llm-provider";
 import { serializeTalk } from "@/lib/serialize-talk";
 import { serializeTalkRun } from "@/lib/serialize-talk-run";
@@ -79,10 +80,14 @@ export async function POST(_request: Request, context: RouteContext) {
     const run = await TalkRunModel.create({
       talkId: document._id,
       status: "idle",
-      phase: talk.moderator.kind === "ai" ? "opening" : "discussion",
+      phase: talk.moderator.kind === "none" ? "discussion" : "opening",
       participantTurnCount: 0,
       maxTurns: Math.min(talk.settings.maxTurns, MAX_RUN_TURNS),
+      targetDurationMinutes: talk.settings.targetDurationMinutes,
+      estimatedAirtimeSeconds: 0,
       nextParticipantIndex: 0,
+      discussionState: createInitialDiscussionState(talk),
+      talkSnapshot: talk,
       messages: [],
       startedAt: new Date(),
     });
