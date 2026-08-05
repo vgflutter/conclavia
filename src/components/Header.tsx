@@ -1,0 +1,51 @@
+"use client";
+
+import Link from "next/link";
+import Image from "next/image";
+
+import { useTranslations } from "@/i18n/I18nProvider";
+import type { Locale } from "@/i18n/translations";
+
+export function Header() {
+  const { locale, setLocale, t } = useTranslations();
+
+  return (
+    <header className="border-b border-[#dfe4dc] bg-white/90 backdrop-blur">
+      <div className="container-page flex min-h-16 items-center justify-between gap-3 py-2">
+        <Link href="/talks" aria-label="Conclavia" className="shrink-0">
+          <Image
+            src="/conclavia-logo.png"
+            alt="Conclavia"
+            width={2079}
+            height={756}
+            priority
+            className="h-11 w-auto sm:h-12"
+          />
+        </Link>
+        <nav aria-label={t("navLabel")} className="flex items-center gap-1.5 sm:gap-2">
+          <Link
+            href="/talks"
+            className="hidden rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 sm:inline-flex"
+          >
+            {t("navTalks")}
+          </Link>
+          <label className="sr-only" htmlFor="interface-language">
+            {t("interfaceLanguage")}
+          </label>
+          <select
+            id="interface-language"
+            value={locale}
+            onChange={(event) => setLocale(event.target.value as Locale)}
+            className="min-h-10 rounded-lg border border-[#dfe4dc] bg-white px-2 text-sm font-medium outline-none focus:border-[#295c43] focus:ring-2 focus:ring-[#295c43]/20"
+          >
+            <option value="en">EN</option>
+            <option value="it">IT</option>
+          </select>
+          <Link href="/talks/new" className="button-primary whitespace-nowrap">
+            {t("navNewTalk")}
+          </Link>
+        </nav>
+      </div>
+    </header>
+  );
+}
