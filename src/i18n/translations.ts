@@ -420,12 +420,13 @@ const english = {
   studioRemoteGuest: "Live guest",
   studioDirector: "Camera direction",
   studioReaction: "Reaction",
+  studioAddressing: "To {name}",
   studioNextChapter: "Next chapter",
   studioDirectorHelp:
-    "Auto moves one virtual camera: full panel for editorial beats, close-ups for arguments, and two-shots only for adjacent guests.",
+    "Auto directs timed close-ups, short two-shots, reaction cuts and editorial wide shots while the speaker continues uninterrupted.",
   studioLiveSystem: "LiveAvatar cast",
   studioLiveSystemHelp:
-    "The director pre-connects each synchronized video and voice only when that AI guest is about to speak.",
+    "The complete AI cast connects in parallel before the first cue, so every later handoff is immediate and every guest remains visibly present.",
   studioConnectedAvatars: "warmed up",
   studioEstimatedCredits: "max credits",
   studioConnecting: "Connecting",
@@ -878,12 +879,13 @@ const italian: Record<TranslationKey, string> = {
   studioRemoteGuest: "Ospite live",
   studioDirector: "Regia video",
   studioReaction: "Reazione",
+  studioAddressing: "A {name}",
   studioNextChapter: "Nuovo capitolo",
   studioDirectorHelp:
-    "Auto muove una sola camera virtuale: totale nei passaggi editoriali, primo piano nelle argomentazioni e confronto solo tra ospiti vicini.",
+    "Auto dirige primi piani temporizzati, brevi confronti, reazioni e campi totali senza interrompere chi sta parlando.",
   studioLiveSystem: "Cast LiveAvatar",
   studioLiveSystemHelp:
-    "La regia precollega video e voce sincronizzati soltanto quando l’ospite AI sta per parlare.",
+    "L’intero cast AI si collega in parallelo prima del primo intervento: i cambi successivi sono immediati e ogni ospite resta visibilmente presente.",
   studioConnectedAvatars: "pronti",
   studioEstimatedCredits: "crediti max",
   studioConnecting: "Collegamento",

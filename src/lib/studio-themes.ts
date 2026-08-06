@@ -12,6 +12,7 @@ export type StudioThemeId = (typeof STUDIO_THEME_IDS)[number];
 export interface StudioTheme {
   id: StudioThemeId;
   image: string;
+  foregroundImage?: string;
   foregroundStartPercent?: number;
   avatarBottomPercent?: number;
 }
@@ -22,7 +23,7 @@ export const STUDIO_THEMES: readonly StudioTheme[] = [
   {
     id: "broadcast_panel",
     image: "/studio/studio-broadcast-panel-seated.webp",
-    foregroundStartPercent: 57,
+    foregroundImage: "/studio/studio-broadcast-panel-foreground.png",
     avatarBottomPercent: 38,
   },
   {

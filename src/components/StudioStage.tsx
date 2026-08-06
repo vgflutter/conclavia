@@ -32,6 +32,14 @@ type StudioState = "idle" | "starting" | "ready" | "speaking" | "error";
 type SeatLiveState = "offline" | "connecting" | "ready" | "speaking" | "error";
 type AudioState = "idle" | "waiting" | "playing" | "blocked";
 export type BroadcastAudioState = "idle" | "loading" | "speaking" | "error";
+type DirectorCueKind = "speaker" | "reaction" | "context";
+
+interface DirectorCue {
+  shot: Exclude<ShotMode, "auto">;
+  focusIndex?: number;
+  companionIndex?: number;
+  kind: DirectorCueKind;
+}
 
 export interface StudioStageHandle {
   startLiveStudio: () => Promise<void>;
@@ -113,8 +121,27 @@ interface LiveKitCommandTransport {
 const BASE_POSITIONS = [5, 21, 38, 55, 72];
 const SEAT_CENTERS = [17, 33, 50, 67, 84];
 const CLOSE_SHOT_POSITIONS = [27, 38, 50, 62, 73];
+const SEAT_ACCENTS = ["#22d3ee", "#a78bfa", "#fbbf24", "#fb7185", "#34d399"];
 const LIVEAVATAR_FULL_CREDITS_PER_MINUTE = 2;
 const MAX_CONCURRENT_LIVEAVATARS = 5;
+
+function captionChunks(content: string): string[] {
+  const words = content.trim().split(/\s+/u).filter(Boolean);
+  if (words.length === 0) return [];
+
+  const chunks: string[] = [];
+  let current: string[] = [];
+  for (const word of words) {
+    current.push(word);
+    const endsPhrase = /[.!?;:]$/u.test(word);
+    if (current.length >= 11 || (current.length >= 6 && endsPhrase)) {
+      chunks.push(current.join(" "));
+      current = [];
+    }
+  }
+  if (current.length > 0) chunks.push(current.join(" "));
+  return chunks;
+}
 
 function arcPhaseKey(phase: TalkRunArcPhase): TranslationKey {
   const keys: Record<TalkRunArcPhase, TranslationKey> = {
@@ -212,9 +239,14 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     );
     const [moderatorLiveState, setModeratorLiveState] =
       useState<SeatLiveState>("offline");
+    const [moderatorVideoReady, setModeratorVideoReady] = useState(false);
     const [activeLiveParticipant, setActiveLiveParticipant] = useState<number>();
-    const [reactionPreviewIndex, setReactionPreviewIndex] = useState<number>();
+    const [directorCue, setDirectorCue] = useState<DirectorCue>();
     const [phaseStinger, setPhaseStinger] = useState<TalkRunArcPhase>();
+    const [captionProgress, setCaptionProgress] = useState({
+      sequence: -1,
+      index: 0,
+    });
     const [cameraSeat, setCameraSeat] = useState<number | null>(null);
     const [cameraError, setCameraError] = useState<string | null>(null);
     const sessionsRef = useRef<Map<string, ManagedSession>>(new Map());
@@ -231,42 +263,57 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const avatarVideoRefs = useRef<(HTMLVideoElement | null)[]>([]);
     const avatarCanvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
     const moderatorVideoRef = useRef<HTMLVideoElement | null>(null);
+    const moderatorCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const moderatorChromaCleanupRef = useRef<ChromaKeyPipeline | null>(null);
     const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
     const cameraStreamRef = useRef<MediaStream | null>(null);
     const studioLockReleaseRef = useRef<(() => void) | null>(null);
     const previousArcPhaseRef = useRef<TalkRunArcPhase | undefined>(undefined);
+    const directorTimersRef = useRef<number[]>([]);
+    const seatVideoReadyRef = useRef(seatVideoReady);
 
     const latestMessage = run?.messages.at(-1);
     const showBroadcastContext =
       studioState !== "idle" ||
       runControlActive ||
       broadcastAudioState !== "idle";
+    const programmeMessage =
+      broadcastAudioState === "loading" || broadcastAudioState === "speaking"
+        ? broadcastMessage
+        : undefined;
     const onAirMessage =
       broadcastAudioState === "speaking" ? broadcastMessage : undefined;
     const currentTurn = activePlan ?? run?.activeTurn;
     const runCompleted = run?.status === "completed" && !runControlActive;
+    const visibleSpeakerType =
+      programmeMessage?.speakerType ?? currentTurn?.speakerType;
     const activeParticipantIndex = runCompleted || !showBroadcastContext
       ? undefined
-      : reactionPreviewIndex !== undefined
-        ? reactionPreviewIndex
-        : onAirMessage?.speakerType === "participant"
-        ? onAirMessage.participantIndex
+      : programmeMessage?.speakerType === "participant"
+        ? programmeMessage.participantIndex
         : activeLiveParticipant ??
           (currentTurn?.speakerType === "participant"
             ? currentTurn.participantIndex
             : latestMessage?.speakerType === "participant"
               ? latestMessage.participantIndex
               : undefined);
+    const moderatorOnCamera =
+      !runCompleted &&
+      showBroadcastContext &&
+      talk.moderator.kind === "ai" &&
+      visibleSpeakerType === "moderator";
+    const reactionPreviewIndex =
+      directorCue?.kind === "reaction" ? directorCue.focusIndex : undefined;
     const targetParticipantIndex = runCompleted || !showBroadcastContext
       ? undefined
-      : onAirMessage?.targetParticipantIndex ??
+      : programmeMessage?.targetParticipantIndex ??
         currentTurn?.targetParticipantIndex ??
         latestMessage?.targetParticipantIndex;
     const currentIntent = showBroadcastContext
-      ? onAirMessage?.intent ?? currentTurn?.intent ?? latestMessage?.intent
+      ? programmeMessage?.intent ?? currentTurn?.intent ?? latestMessage?.intent
       : undefined;
     const currentThread = showBroadcastContext
-      ? onAirMessage?.threadLabel ||
+      ? programmeMessage?.threadLabel ||
         currentTurn?.threadLabel ||
         latestMessage?.threadLabel ||
         run?.discussionState.currentFocus ||
@@ -275,13 +322,36 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const currentSpeaker = showBroadcastContext
       ? reactionPreviewIndex !== undefined
         ? talk.participants[reactionPreviewIndex]?.name
-        : onAirMessage?.speakerName ??
+        : programmeMessage?.speakerName ??
           currentTurn?.speakerName ??
           latestMessage?.speakerName
       : undefined;
-    const visibleCaption = showBroadcastContext
-      ? onAirMessage?.content || streamingContent || latestMessage?.content || ""
-      : "";
+    const currentRole =
+      reactionPreviewIndex !== undefined
+        ? talk.participants[reactionPreviewIndex]?.role
+        : programmeMessage?.speakerRole ??
+          (activeParticipantIndex !== undefined
+            ? talk.participants[activeParticipantIndex]?.role
+            : talk.moderator.role);
+    const currentTargetName =
+      programmeMessage?.targetSpeakerName ?? currentTurn?.targetSpeakerName;
+    const currentCaptionChunks = onAirMessage
+      ? captionChunks(onAirMessage.content)
+      : [];
+    const captionSequence = onAirMessage?.sequence;
+    const captionAirtimeSeconds = onAirMessage?.estimatedAirtimeSeconds;
+    const captionIndex =
+      captionSequence !== undefined &&
+      captionProgress.sequence === captionSequence
+        ? captionProgress.index
+        : 0;
+    const visibleCaption = onAirMessage
+      ? currentCaptionChunks[
+          Math.min(captionIndex, Math.max(0, currentCaptionChunks.length - 1))
+        ] ?? ""
+      : !isBroadcast
+        ? streamingContent
+        : "";
     const visibleArcPhase =
       activePlan?.arcPhase ?? run?.activeTurn?.arcPhase ?? run?.discussionState.arcPhase;
     const firstHumanSeat = talk.participants.findIndex(
@@ -291,28 +361,26 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       currentIntent === "opening" ||
       currentIntent === "closing" ||
       currentIntent === "moderation";
-    const hasAdjacentTarget =
-      activeParticipantIndex !== undefined &&
-      targetParticipantIndex !== undefined &&
-      Math.abs(activeParticipantIndex - targetParticipantIndex) === 1;
     const effectiveShot: Exclude<ShotMode, "auto"> =
       shotMode !== "auto"
         ? shotMode
-        : runCompleted || activeParticipantIndex === undefined
-          ? "wide"
-          : hasAdjacentTarget && !usesEditorialWideShot
-            ? "duo"
-            : usesEditorialWideShot
+        : directorCue?.shot ??
+          (moderatorOnCamera
+            ? "close"
+            : runCompleted || activeParticipantIndex === undefined
               ? "wide"
-              : "close";
-    const framedFocusIndex = activeParticipantIndex ?? 2;
+              : usesEditorialWideShot
+                ? "wide"
+                : "close");
+    const framedFocusIndex = directorCue?.focusIndex ?? activeParticipantIndex ?? 2;
     const duoCompanionIndex =
-      targetParticipantIndex !== undefined &&
+      directorCue?.companionIndex ??
+      (targetParticipantIndex !== undefined &&
       targetParticipantIndex !== framedFocusIndex
         ? targetParticipantIndex
         : framedFocusIndex === talk.participants.length - 1
           ? framedFocusIndex - 1
-          : framedFocusIndex + 1;
+          : framedFocusIndex + 1);
     const closeAnchor = SEAT_CENTERS[framedFocusIndex] ?? 50;
     const closeDestination = CLOSE_SHOT_POSITIONS[framedFocusIndex] ?? 50;
     const duoAnchor =
@@ -347,6 +415,113 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           ? duoDestination
           : 50;
     const cameraTransform = `translateX(${cameraDestination - cameraAnchor}%) scale(${cameraZoom})`;
+
+    useEffect(() => {
+      seatVideoReadyRef.current = seatVideoReady;
+    }, [seatVideoReady]);
+
+    useEffect(() => {
+      if (
+        captionSequence === undefined ||
+        captionAirtimeSeconds === undefined ||
+        currentCaptionChunks.length <= 1
+      ) {
+        return;
+      }
+
+      const estimatedSpeechMs = Math.max(
+        1_400,
+        captionAirtimeSeconds * 840,
+      );
+      const intervalMs = Math.max(
+        1_100,
+        Math.round(estimatedSpeechMs / currentCaptionChunks.length),
+      );
+      let nextIndex = 0;
+      const timer = window.setInterval(() => {
+        nextIndex += 1;
+        const boundedIndex = Math.min(
+          nextIndex,
+          currentCaptionChunks.length - 1,
+        );
+        setCaptionProgress({ sequence: captionSequence, index: boundedIndex });
+        if (boundedIndex >= currentCaptionChunks.length - 1) {
+          window.clearInterval(timer);
+        }
+      }, intervalMs);
+      return () => window.clearInterval(timer);
+    }, [
+      captionAirtimeSeconds,
+      captionSequence,
+      currentCaptionChunks.length,
+    ]);
+
+    function clearDirectorTimers() {
+      for (const timer of directorTimersRef.current) {
+        window.clearTimeout(timer);
+      }
+      directorTimersRef.current = [];
+    }
+
+    function scheduleDirectorCue(delayMs: number, cue: DirectorCue) {
+      const timer = window.setTimeout(() => setDirectorCue(cue), delayMs);
+      directorTimersRef.current.push(timer);
+    }
+
+    function directSpeakingMessage(message: TalkRunMessageResponse) {
+      clearDirectorTimers();
+      const speakerIndex = message.participantIndex;
+      if (message.speakerType === "moderator" || speakerIndex === undefined) {
+        setDirectorCue({ shot: "close", kind: "speaker" });
+        return;
+      }
+
+      const speakerCue: DirectorCue = {
+        shot: "close",
+        focusIndex: speakerIndex,
+        kind: "speaker",
+      };
+      setDirectorCue(speakerCue);
+      const durationMs = Math.max(
+        6_000,
+        message.estimatedAirtimeSeconds * 840,
+      );
+      const targetIndex = message.targetParticipantIndex;
+      const targetIsReady =
+        targetIndex !== undefined && seatVideoReadyRef.current[targetIndex];
+      const targetIsAdjacent =
+        targetIndex !== undefined && Math.abs(speakerIndex - targetIndex) === 1;
+
+      let lastCutEndsAt = 0;
+      if (targetIsReady && targetIsAdjacent && durationMs >= 9_000) {
+        const duoAt = Math.min(5_200, Math.max(2_800, durationMs * 0.27));
+        scheduleDirectorCue(duoAt, {
+          shot: "duo",
+          focusIndex: speakerIndex,
+          companionIndex: targetIndex,
+          kind: "context",
+        });
+        scheduleDirectorCue(duoAt + 1_650, speakerCue);
+        lastCutEndsAt = duoAt + 1_650;
+      }
+
+      if (targetIsReady && durationMs >= 13_000) {
+        const reactionAt = Math.max(
+          lastCutEndsAt + 2_200,
+          Math.min(durationMs - 2_600, durationMs * 0.62),
+        );
+        scheduleDirectorCue(reactionAt, {
+          shot: "close",
+          focusIndex: targetIndex,
+          kind: "reaction",
+        });
+        scheduleDirectorCue(reactionAt + 1_250, speakerCue);
+      } else if (!targetIsReady && durationMs >= 18_000) {
+        const contextAt = Math.min(durationMs - 2_400, durationMs * 0.58);
+        scheduleDirectorCue(contextAt, { shot: "wide", kind: "context" });
+        scheduleDirectorCue(contextAt + 1_100, speakerCue);
+      }
+    }
 
     useEffect(() => {
       const previous = previousArcPhaseRef.current;
@@ -525,6 +700,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         window.clearInterval(keepAliveTimerRef.current);
         keepAliveTimerRef.current = null;
       }
+      clearDirectorTimers();
     }
 
     async function acquireStudioLock(): Promise<void> {
@@ -564,6 +740,8 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     function releaseMediaElements() {
       for (const pipeline of chromaCleanupRefs.current.values()) pipeline.stop();
       chromaCleanupRefs.current.clear();
+      moderatorChromaCleanupRef.current?.stop();
+      moderatorChromaCleanupRef.current = null;
       for (const video of avatarVideoRefs.current) {
         if (!video) continue;
         video.pause();
@@ -590,6 +768,9 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         setSeatVideoIsReady(participantIndex, false);
         setSeatState(participantIndex, "connecting");
       } else {
+        moderatorChromaCleanupRef.current?.stop();
+        moderatorChromaCleanupRef.current = null;
+        setModeratorVideoReady(false);
         setModeratorLiveState("connecting");
       }
       await Promise.allSettled([
@@ -639,10 +820,11 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         setStudioState("idle");
         setAudioState("idle");
         setActiveLiveParticipant(undefined);
-        setReactionPreviewIndex(undefined);
+        setDirectorCue(undefined);
         setSeatStates(talk.participants.map(() => "offline"));
         setSeatVideoReady(talk.participants.map(() => false));
         setModeratorLiveState("offline");
+        setModeratorVideoReady(false);
         onBroadcastStateChange?.("idle");
         window.setTimeout(() => void refreshStatus(), 1_000);
       }
@@ -742,10 +924,37 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
               setStudioError(t("studioChromaError"));
             }
           }
+        } else {
+          const showModeratorVideo = () => setModeratorVideoReady(true);
+          const requestVideoFrame = (
+            video as HTMLVideoElement & {
+              requestVideoFrameCallback?: (callback: () => void) => number;
+            }
+          ).requestVideoFrameCallback;
+          if (requestVideoFrame) {
+            requestVideoFrame.call(video, showModeratorVideo);
+          } else if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+            showModeratorVideo();
+          } else {
+            video.addEventListener("loadeddata", showModeratorVideo, {
+              once: true,
+            });
+          }
+          const canvas = moderatorCanvasRef.current;
+          if (canvas) {
+            try {
+              moderatorChromaCleanupRef.current?.stop();
+              const pipeline = startChromaKey(video, canvas);
+              pipeline.resize(640, 360);
+              moderatorChromaCleanupRef.current = pipeline;
+            } catch {
+              setStudioError(t("studioChromaError"));
+            }
+          }
         }
       });
       session.on(sdk.AgentEventsEnum.AVATAR_SPEAK_STARTED, () => {
-        setReactionPreviewIndex(undefined);
+        if (managed.currentMessage) directSpeakingMessage(managed.currentMessage);
         setStudioState("speaking");
         if (target.participantIndex !== undefined) {
           setSeatState(target.participantIndex, "speaking");
@@ -778,6 +987,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           setSeatVideoIsReady(target.participantIndex, false);
         } else {
           setModeratorLiveState(interruptedSpeech ? "error" : "offline");
+          setModeratorVideoReady(false);
         }
         if (!interruptedSpeech) return;
         managed.finishSpeech?.(new Error(t("studioSessionDisconnected")));
@@ -806,6 +1016,53 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       startupComplete = true;
     }
 
+    async function ensureTargetSession(
+      target: SpeakerTarget,
+      sdk: typeof import("@heygen/liveavatar-web-sdk"),
+    ): Promise<void> {
+      const existing = sessionsRef.current.get(target.key);
+      if (existing) {
+        const hasEnoughLifetime = existing.expiresAt - Date.now() > 60_000;
+        if (hasEnoughLifetime || existing.currentMessage) return;
+        await retireManagedSession(existing);
+      }
+
+      const existingPromise = sessionStartPromisesRef.current.get(target.key);
+      if (existingPromise) return existingPromise;
+
+      const startPromise = createManagedSession(target, sdk).catch(
+        async (error: unknown) => {
+          const managed = sessionsRef.current.get(target.key);
+          if (managed) {
+            sessionsRef.current.delete(target.key);
+            await Promise.allSettled([
+              fetch(`/api/liveavatar/sessions/${managed.sessionId}`, {
+                method: "DELETE",
+                keepalive: true,
+              }),
+              Promise.resolve().then(() => managed.session.stop()),
+            ]);
+          }
+          if (target.participantIndex !== undefined) {
+            setSeatState(target.participantIndex, "error");
+            setSeatVideoIsReady(target.participantIndex, false);
+          } else {
+            setModeratorLiveState("error");
+            setModeratorVideoReady(false);
+          }
+          throw error;
+        },
+      );
+      sessionStartPromisesRef.current.set(target.key, startPromise);
+      try {
+        await startPromise;
+      } finally {
+        if (sessionStartPromisesRef.current.get(target.key) === startPromise) {
+          sessionStartPromisesRef.current.delete(target.key);
+        }
+      }
+    }
+
     async function startLiveStudio(): Promise<void> {
       if (studioState === "ready" || studioState === "speaking") return;
       if (startPromiseRef.current) return startPromiseRef.current;
@@ -829,7 +1086,11 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             }),
           );
         }
-        sdkRef.current = await import("@heygen/liveavatar-web-sdk");
+        const sdk = await import("@heygen/liveavatar-web-sdk");
+        sdkRef.current = sdk;
+        await Promise.all(
+          targets.map((target) => ensureTargetSession(target, sdk)),
+        );
         setStudioState("ready");
 
         keepAliveTimerRef.current = window.setInterval(() => {
@@ -871,48 +1132,9 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         if (isHumanParticipant || talk.moderator.kind === "human") return;
         throw new Error(t("studioSpeakerUnavailable"));
       }
-      const existing = sessionsRef.current.get(target.key);
-      if (existing) {
-        const hasEnoughLifetime = existing.expiresAt - Date.now() > 60_000;
-        if (hasEnoughLifetime || existing.currentMessage) return;
-        await retireManagedSession(existing);
-      }
-
-      const existingPromise = sessionStartPromisesRef.current.get(target.key);
-      if (existingPromise) return existingPromise;
       const sdk = sdkRef.current;
       if (!sdk) throw new Error(t("studioSpeakerUnavailable"));
-
-      const startPromise = createManagedSession(target, sdk).catch(
-        async (error: unknown) => {
-          const managed = sessionsRef.current.get(target.key);
-          if (managed) {
-            sessionsRef.current.delete(target.key);
-            await Promise.allSettled([
-              fetch(`/api/liveavatar/sessions/${managed.sessionId}`, {
-                method: "DELETE",
-                keepalive: true,
-              }),
-              Promise.resolve().then(() => managed.session.stop()),
-            ]);
-          }
-          if (target.participantIndex !== undefined) {
-            setSeatState(target.participantIndex, "error");
-            setSeatVideoIsReady(target.participantIndex, false);
-          } else {
-            setModeratorLiveState("error");
-          }
-          throw error;
-        },
-      );
-      sessionStartPromisesRef.current.set(target.key, startPromise);
-      try {
-        await startPromise;
-      } finally {
-        if (sessionStartPromisesRef.current.get(target.key) === startPromise) {
-          sessionStartPromisesRef.current.delete(target.key);
-        }
-      }
+      await ensureTargetSession(target, sdk);
     }
 
     async function speak(message: TalkRunMessageResponse): Promise<void> {
@@ -936,17 +1158,26 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
 
       managed.currentMessage = message;
       onBroadcastStateChange?.("loading", message);
+      clearDirectorTimers();
       if (message.participantIndex !== undefined) {
         const reactionTarget = message.targetParticipantIndex;
         const canCutToReaction =
           reactionTarget !== undefined &&
           reactionTarget !== message.participantIndex &&
-          seatVideoReady[reactionTarget] &&
-          Math.abs(reactionTarget - message.participantIndex) > 1;
-        setReactionPreviewIndex(
-          canCutToReaction ? reactionTarget : undefined,
-        );
+          seatVideoReadyRef.current[reactionTarget];
+        if (canCutToReaction) {
+          setDirectorCue({
+            shot: "close",
+            focusIndex: reactionTarget,
+            kind: "reaction",
+          });
+          scheduleDirectorCue(1_500, { shot: "wide", kind: "context" });
+        } else {
+          setDirectorCue({ shot: "wide", kind: "context" });
+        }
         setActiveLiveParticipant(message.participantIndex);
+      } else {
+        setDirectorCue({ shot: "close", kind: "speaker" });
       }
       managed.video.muted = false;
       managed.video.volume = volume;
@@ -967,14 +1198,16 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           }
           managed.finishSpeech = undefined;
           managed.currentMessage = undefined;
+          clearDirectorTimers();
           if (error) {
+            setDirectorCue(undefined);
             onBroadcastStateChange?.("error", message);
             reject(error);
             return;
           }
           setStudioState("ready");
           setActiveLiveParticipant(undefined);
-          setReactionPreviewIndex(undefined);
+          setDirectorCue(undefined);
           onBroadcastStateChange?.("idle");
           resolve();
         };
@@ -1047,6 +1280,14 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         left: `${BASE_POSITIONS[index]}%`,
         width: "24%",
       };
+      if (moderatorOnCamera) {
+        return {
+          ...baseLayout,
+          opacity: 0,
+          transform: "scale(.98)",
+          zIndex: 10,
+        };
+      }
       if (effectiveShot === "close") {
         return index === framedFocusIndex
           ? {
@@ -1112,11 +1353,16 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         );
         pipeline.resize(width, height);
       }
+      moderatorChromaCleanupRef.current?.resize(
+        moderatorOnCamera ? 1920 : 640,
+        moderatorOnCamera ? 1080 : 360,
+      );
     }, [
       activeParticipantIndex,
       duoCompanionIndex,
       effectiveShot,
       framedFocusIndex,
+      moderatorOnCamera,
     ]);
 
     useImperativeHandle(ref, () => ({
@@ -1176,6 +1422,12 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         sdkRef.current = null;
         for (const pipeline of chromaCleanups.values()) pipeline.stop();
         chromaCleanups.clear();
+        moderatorChromaCleanupRef.current?.stop();
+        moderatorChromaCleanupRef.current = null;
+        for (const timer of directorTimersRef.current) {
+          window.clearTimeout(timer);
+        }
+        directorTimersRef.current = [];
         for (const video of avatarVideos) {
           if (!video) continue;
           video.pause();
@@ -1225,6 +1477,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
               ? "studioError"
               : "studioIdle";
     const studioTheme = getStudioTheme(talk.settings.studioTheme);
+    const moderatorAvatar = getStudioAvatar(0, "male");
 
     return (
       <section
@@ -1236,8 +1489,9 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       >
         <div className="relative aspect-video overflow-hidden bg-[#08111f]" data-testid="studio-stage">
           <div
-            className="absolute inset-0 transition-transform duration-300 motion-reduce:transition-none [transition-timing-function:cubic-bezier(.2,.82,.2,1)]"
+            className="absolute inset-0 transition-transform duration-200 motion-reduce:transition-none [transition-timing-function:cubic-bezier(.2,.82,.2,1)]"
             data-studio-shot={effectiveShot}
+            data-director-cue={directorCue?.kind ?? "automatic"}
             style={{
               transform: cameraTransform,
               transformOrigin: `${cameraAnchor}% 45%`,
@@ -1250,7 +1504,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
               fill
               priority
               sizes="(max-width: 1152px) 100vw, 1152px"
-              className="object-cover transition-[filter] duration-300"
+              className="object-cover transition-[filter] duration-200"
               style={{
                 filter:
                   effectiveShot === "close"
@@ -1261,6 +1515,16 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
               }}
             />
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,transparent_0%,rgba(2,8,18,.06)_52%,rgba(2,8,18,.44)_100%)]" />
+            <div
+              className="absolute inset-0 transition-[background] duration-500"
+              style={{
+                background: `radial-gradient(circle at ${SEAT_CENTERS[framedFocusIndex] ?? 50}% 48%, rgba(34,211,238,.16), transparent 24%)`,
+                opacity:
+                  activeParticipantIndex !== undefined || moderatorOnCamera
+                    ? 1
+                    : 0,
+              }}
+            />
 
             {talk.moderator.kind === "ai" && (
               <video
@@ -1270,6 +1534,40 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                 preload="auto"
                 className="pointer-events-none absolute size-px opacity-0"
               />
+            )}
+
+            {talk.moderator.kind === "ai" && (
+              <div
+                className="absolute left-[38%] h-[63%] w-[24%] transition-all duration-200"
+                style={{
+                  bottom: `${studioTheme.avatarBottomPercent ?? 8}%`,
+                  opacity: moderatorOnCamera ? 1 : 0,
+                  transform: moderatorOnCamera
+                    ? "translateY(-1.5%) scale(1.025)"
+                    : "scale(.98)",
+                  zIndex: 26,
+                }}
+                aria-hidden={!moderatorOnCamera}
+              >
+                <div className="absolute inset-x-[18%] bottom-[4%] h-[72%] rounded-full bg-cyan-300/24 blur-2xl" />
+                <div className="absolute inset-x-[24%] bottom-[2%] h-[16%] rounded-full bg-black/45 blur-xl" />
+                <div
+                  className={`absolute -left-[30%] bottom-0 aspect-video w-[160%] drop-shadow-[0_18px_22px_rgba(0,0,0,.68)] transition-opacity duration-300 ${moderatorVideoReady ? "opacity-0" : "opacity-100"}`}
+                >
+                  <Image
+                    src={moderatorAvatar.image}
+                    alt=""
+                    fill
+                    loading="eager"
+                    sizes="40vw"
+                    className="object-contain object-bottom"
+                  />
+                </div>
+                <canvas
+                  ref={moderatorCanvasRef}
+                  className={`absolute -left-[30%] bottom-0 aspect-video w-[160%] drop-shadow-[0_18px_22px_rgba(0,0,0,.68)] transition-opacity duration-300 ${moderatorVideoReady ? "opacity-100" : "opacity-0"}`}
+                />
+              </div>
             )}
 
             {talk.participants.map((participant, index) => {
@@ -1284,7 +1582,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             return (
               <div key={`${participant.name}-${index}`}>
                 <div
-                  className="absolute h-[63%] transition-all duration-500 ease-out"
+                  className="absolute h-[63%] transition-all duration-200 ease-out"
                   style={{
                     ...layout,
                     bottom: `${studioTheme.avatarBottomPercent ?? 8}%`,
@@ -1376,7 +1674,18 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
               );
             })}
 
-            {studioTheme.foregroundStartPercent !== undefined ? (
+            {studioTheme.foregroundImage ? (
+              <div className="pointer-events-none absolute inset-0 z-[25] -translate-y-[1%]">
+                <Image
+                  src={studioTheme.foregroundImage}
+                  alt=""
+                  fill
+                  priority
+                  sizes="(max-width: 1152px) 100vw, 1152px"
+                  className="object-cover"
+                />
+              </div>
+            ) : studioTheme.foregroundStartPercent !== undefined ? (
               <div
                 className="pointer-events-none absolute inset-0 z-[25]"
                 style={{
@@ -1399,12 +1708,12 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             )}
           </div>
 
-          <div className="absolute left-[2.2%] top-[3.5%] z-40 flex items-center gap-2 rounded-full border border-white/15 bg-[#07101d]/75 px-[2.1%] py-[.8%] text-[clamp(.38rem,1vw,.72rem)] font-black tracking-[.22em] text-white shadow-lg backdrop-blur-md">
+          <div className="absolute left-[2.2%] top-[3.5%] z-40 flex items-center gap-2 rounded-full border border-white/15 bg-[#07101d]/82 px-[2.1%] py-[.8%] text-[clamp(.52rem,1vw,.92rem)] font-black tracking-[.22em] text-white shadow-lg backdrop-blur-md">
             <span className="inline-flex size-[clamp(.32rem,.72vw,.52rem)] rounded-full bg-cyan-400 shadow-[0_0_12px_#22d3ee]" />
             CONCLAVIA
           </div>
           <div
-            className={`absolute right-[2.2%] top-[3.5%] z-40 flex items-center gap-1.5 rounded-full border px-[1.8%] py-[.75%] text-[clamp(.36rem,.9vw,.66rem)] font-bold uppercase tracking-[.18em] text-white shadow-lg ${studioIsLive ? "border-red-400/30 bg-red-600/90" : studioNeedsAudio ? "border-amber-300/40 bg-amber-500/90" : "border-cyan-200/25 bg-[#12314c]/90"}`}
+            className={`absolute right-[2.2%] top-[3.5%] z-40 flex items-center gap-1.5 rounded-full border px-[1.8%] py-[.75%] text-[clamp(.48rem,.9vw,.82rem)] font-bold uppercase tracking-[.18em] text-white shadow-lg ${studioIsLive ? "border-red-400/30 bg-red-600/90" : studioNeedsAudio ? "border-amber-300/40 bg-amber-500/90" : "border-cyan-200/25 bg-[#12314c]/90"}`}
             data-studio-status={stageStatusKey}
           >
             <span className={`size-[clamp(.28rem,.6vw,.44rem)] rounded-full ${studioIsLive ? "animate-pulse bg-white" : studioNeedsAudio ? "bg-amber-100" : "bg-cyan-300"}`} />
@@ -1434,9 +1743,9 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             </div>
           )}
 
-          {talk.moderator.kind !== "none" && (
-            <div className="absolute left-1/2 top-[4%] z-30 max-w-[45%] -translate-x-1/2 truncate rounded-full border border-white/10 bg-slate-950/60 px-[2%] py-[.7%] text-center text-[clamp(.34rem,.82vw,.62rem)] font-semibold text-slate-200 backdrop-blur">
-              {t("studioHostedBy", { name: talk.moderator.name || t("moderation") })}
+          {showBroadcastContext && currentThread && !phaseStinger && (
+            <div className="absolute left-1/2 top-[4%] z-30 max-w-[46%] -translate-x-1/2 truncate rounded-full border border-white/10 bg-slate-950/68 px-[2%] py-[.7%] text-center text-[clamp(.46rem,.82vw,.8rem)] font-semibold text-slate-100 shadow-lg backdrop-blur-md">
+              {currentThread}
             </div>
           )}
 
@@ -1452,31 +1761,65 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             </div>
           )}
 
-          <div className="absolute bottom-[15.5%] left-1/2 z-40 flex max-w-[76%] -translate-x-1/2 items-center gap-[clamp(.3rem,1vw,.7rem)] rounded-lg border border-white/10 bg-[#050b15]/82 px-[2%] py-[1%] text-white shadow-2xl backdrop-blur-md">
-            {(reactionPreviewIndex !== undefined || currentIntent) && (
-              <span className="shrink-0 rounded bg-cyan-400/15 px-2 py-1 text-[clamp(.3rem,.7vw,.55rem)] font-bold uppercase tracking-[.12em] text-cyan-200">
-                {reactionPreviewIndex !== undefined
-                  ? t("studioReaction")
-                  : currentIntent
-                    ? t(intentKey(currentIntent))
-                    : null}
-              </span>
-            )}
-            <div className="min-w-0">
-              {currentSpeaker && (
-                <p className="truncate text-[clamp(.34rem,.78vw,.6rem)] font-semibold text-white">
-                  {currentSpeaker}
-                </p>
-              )}
-              <p className="truncate text-[clamp(.28rem,.68vw,.54rem)] text-slate-300">
-                {currentThread}
-              </p>
+          {currentSpeaker && showBroadcastContext && !runCompleted && (
+            <div
+              key={`${programmeMessage?.sequence ?? "plan"}-${currentSpeaker}-${reactionPreviewIndex ?? "speaker"}`}
+              className="broadcast-lower-third absolute bottom-[16%] left-[4%] z-40 flex max-w-[58%] items-stretch overflow-hidden rounded-r-lg border border-white/12 bg-[#050b15]/92 text-white shadow-[0_16px_48px_rgba(0,0,0,.46)] backdrop-blur-md"
+              style={{
+                borderLeftColor:
+                  SEAT_ACCENTS[
+                    reactionPreviewIndex ?? activeParticipantIndex ?? 0
+                  ],
+                borderLeftWidth: "clamp(4px,.45vw,8px)",
+              }}
+            >
+              <div className="flex min-w-0 items-center gap-[clamp(.45rem,1.1vw,1.1rem)] px-[2.2vw] py-[.9vw]">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-[.7vw]">
+                    {(reactionPreviewIndex !== undefined || currentIntent) && (
+                      <span className="shrink-0 rounded bg-cyan-400/14 px-[.55vw] py-[.22vw] text-[clamp(.44rem,.62vw,.72rem)] font-black uppercase tracking-[.14em] text-cyan-200">
+                        {reactionPreviewIndex !== undefined
+                          ? t("studioReaction")
+                          : currentIntent
+                            ? t(intentKey(currentIntent))
+                            : null}
+                      </span>
+                    )}
+                    {currentTargetName && reactionPreviewIndex === undefined && (
+                      <span className="truncate text-[clamp(.44rem,.65vw,.76rem)] font-semibold text-slate-400">
+                        {t("studioAddressing", { name: currentTargetName })}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-[.28vw] truncate text-[clamp(.82rem,1.42vw,1.65rem)] font-black leading-none tracking-tight">
+                    {currentSpeaker}
+                  </p>
+                  {currentRole && (
+                    <p className="mt-[.32vw] truncate text-[clamp(.5rem,.76vw,.9rem)] font-medium text-slate-300">
+                      {currentRole}
+                    </p>
+                  )}
+                </div>
+                {studioIsLive && (
+                  <div className="broadcast-audio-meter ml-auto flex h-[1.5vw] min-h-3 shrink-0 items-center gap-[.14vw]" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           {visibleCaption && (
-            <div className="absolute inset-x-[14%] bottom-[3.5%] z-50 rounded-md bg-black/78 px-[2.4%] py-[.75%] text-center text-[clamp(.34rem,.86vw,.72rem)] font-medium leading-snug text-white shadow-2xl backdrop-blur-sm">
-              <p className="line-clamp-2">{visibleCaption}</p>
+            <div
+              key={`${onAirMessage?.sequence ?? "stream"}-${captionIndex}`}
+              className="broadcast-caption absolute inset-x-[15%] bottom-[3.8%] z-50 px-[2.4%] py-[.8%] text-center text-[clamp(.76rem,1.38vw,1.55rem)] font-bold leading-[1.28] tracking-[-.01em] text-white"
+            >
+              <p className="mx-auto max-w-[48ch] rounded-md bg-black/82 px-[1.15em] py-[.42em] shadow-[0_8px_32px_rgba(0,0,0,.5)] backdrop-blur-sm">
+                {visibleCaption}
+              </p>
             </div>
           )}
 
