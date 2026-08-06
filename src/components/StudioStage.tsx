@@ -110,6 +110,8 @@ interface LiveKitCommandTransport {
 // Seat centres in the shared studio backgrounds are approximately
 // 17%, 33%, 50%, 67%, and 84% of the stage width.
 const BASE_POSITIONS = [5, 21, 38, 55, 72];
+const SEAT_CENTERS = [17, 33, 50, 67, 84];
+const CLOSE_SHOT_POSITIONS = [27, 38, 50, 62, 73];
 const LIVEAVATAR_FULL_CREDITS_PER_MINUTE = 2;
 const MAX_CONCURRENT_LIVEAVATARS = 5;
 
@@ -245,21 +247,66 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const firstHumanSeat = talk.participants.findIndex(
       (participant) => participant.kind === "human",
     );
+    const usesEditorialWideShot =
+      currentIntent === "opening" ||
+      currentIntent === "closing" ||
+      currentIntent === "moderation";
+    const hasAdjacentTarget =
+      activeParticipantIndex !== undefined &&
+      targetParticipantIndex !== undefined &&
+      Math.abs(activeParticipantIndex - targetParticipantIndex) === 1;
     const effectiveShot: Exclude<ShotMode, "auto"> =
       shotMode !== "auto"
         ? shotMode
         : runCompleted || activeParticipantIndex === undefined
           ? "wide"
-          : targetParticipantIndex !== undefined &&
-              currentIntent !== "opening" &&
-              currentIntent !== "closing" &&
-              currentIntent !== "moderation"
+          : hasAdjacentTarget && !usesEditorialWideShot
             ? "duo"
-            : currentIntent === "opening" ||
-                currentIntent === "closing" ||
-                currentIntent === "moderation"
+            : usesEditorialWideShot
               ? "wide"
               : "close";
+    const framedFocusIndex = activeParticipantIndex ?? 2;
+    const duoCompanionIndex =
+      targetParticipantIndex !== undefined &&
+      targetParticipantIndex !== framedFocusIndex
+        ? targetParticipantIndex
+        : framedFocusIndex === talk.participants.length - 1
+          ? framedFocusIndex - 1
+          : framedFocusIndex + 1;
+    const closeAnchor = SEAT_CENTERS[framedFocusIndex] ?? 50;
+    const closeDestination = CLOSE_SHOT_POSITIONS[framedFocusIndex] ?? 50;
+    const duoAnchor =
+      ((SEAT_CENTERS[framedFocusIndex] ?? 50) +
+        (SEAT_CENTERS[duoCompanionIndex] ?? 50)) /
+      2;
+    const duoDestination = Math.min(66, Math.max(34, duoAnchor));
+    const duoSpan = Math.abs(
+      (SEAT_CENTERS[framedFocusIndex] ?? 50) -
+        (SEAT_CENTERS[duoCompanionIndex] ?? 50),
+    );
+    const cameraZoom =
+      effectiveShot === "close"
+        ? 1.58
+        : effectiveShot === "duo"
+          ? duoSpan <= 18
+            ? 1.26
+            : duoSpan <= 35
+              ? 1.08
+              : 1
+          : 1;
+    const cameraAnchor =
+      effectiveShot === "close"
+        ? closeAnchor
+        : effectiveShot === "duo"
+          ? duoAnchor
+          : 50;
+    const cameraDestination =
+      effectiveShot === "close"
+        ? closeDestination
+        : effectiveShot === "duo"
+          ? duoDestination
+          : 50;
+    const cameraTransform = `translateX(${cameraDestination - cameraAnchor}%) scale(${cameraZoom})`;
 
     function participantSex(index: number): "female" | "male" {
       return talk.participants[index]?.sex === "male" ? "male" : "female";
@@ -895,53 +942,46 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       zIndex: number;
     } {
       const focusIndex = activeParticipantIndex;
-      const framedFocusIndex = focusIndex ?? 0;
+      const baseLayout = {
+        left: `${BASE_POSITIONS[index]}%`,
+        width: "24%",
+      };
       if (effectiveShot === "close") {
         return index === framedFocusIndex
           ? {
-              left: "29%",
-              width: "42%",
+              ...baseLayout,
               opacity: 1,
-              transform: "translateY(-1.5%) scale(1.02)",
+              transform: "translateY(-1.5%) scale(1.025)",
               zIndex: 24,
             }
           : {
-              left: `${BASE_POSITIONS[index]}%`,
-              width: "28%",
+              ...baseLayout,
               opacity: 0,
-              transform: "scale(.9)",
+              transform: "scale(.98)",
               zIndex: 10,
             };
       }
       if (effectiveShot === "duo") {
-        const companion =
-          targetParticipantIndex !== undefined &&
-          targetParticipantIndex !== framedFocusIndex
-            ? targetParticipantIndex
-            : (framedFocusIndex + 1) % talk.participants.length;
         if (index === framedFocusIndex) {
           return {
-            left: "18%",
-            width: "34%",
+            ...baseLayout,
             opacity: 1,
-            transform: "scale(1.02)",
+            transform: "translateY(-1%) scale(1.025)",
             zIndex: 24,
           };
         }
-        if (index === companion) {
+        if (index === duoCompanionIndex) {
           return {
-            left: "49%",
-            width: "34%",
+            ...baseLayout,
             opacity: 1,
-            transform: "scale(1.02)",
+            transform: "translateY(-.5%) scale(1.015)",
             zIndex: 22,
           };
         }
         return {
-          left: `${BASE_POSITIONS[index]}%`,
-          width: "28%",
+          ...baseLayout,
           opacity: 0,
-          transform: "scale(.9)",
+          transform: "scale(.98)",
           zIndex: 10,
         };
       }
@@ -949,8 +989,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       const isFocused = focusIndex === index;
       const isTarget = targetParticipantIndex === index;
       return {
-        left: `${BASE_POSITIONS[index]}%`,
-        width: "24%",
+        ...baseLayout,
         opacity: isFocused ? 1 : isTarget ? 0.96 : 0.86,
         transform: isFocused
           ? "translateY(-2%) scale(1.055)"
@@ -1107,75 +1146,43 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         }
       >
         <div className="relative aspect-video overflow-hidden bg-[#08111f]" data-testid="studio-stage">
-          <Image
-            src={studioTheme.image}
-            alt=""
-            fill
-            priority
-            sizes="(max-width: 1152px) 100vw, 1152px"
-            className="object-cover"
-          />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,transparent_0%,rgba(2,8,18,.06)_52%,rgba(2,8,18,.44)_100%)]" />
-
-          <div className="absolute left-[2.2%] top-[3.5%] z-40 flex items-center gap-2 rounded-full border border-white/15 bg-[#07101d]/75 px-[2.1%] py-[.8%] text-[clamp(.38rem,1vw,.72rem)] font-black tracking-[.22em] text-white shadow-lg backdrop-blur-md">
-            <span className="inline-flex size-[clamp(.32rem,.72vw,.52rem)] rounded-full bg-cyan-400 shadow-[0_0_12px_#22d3ee]" />
-            CONCLAVIA
-          </div>
           <div
-            className={`absolute right-[2.2%] top-[3.5%] z-40 flex items-center gap-1.5 rounded-full border px-[1.8%] py-[.75%] text-[clamp(.36rem,.9vw,.66rem)] font-bold uppercase tracking-[.18em] text-white shadow-lg ${studioIsLive ? "border-red-400/30 bg-red-600/90" : studioNeedsAudio ? "border-amber-300/40 bg-amber-500/90" : "border-cyan-200/25 bg-[#12314c]/90"}`}
-            data-studio-status={stageStatusKey}
+            className="absolute inset-0 transition-transform duration-500 ease-out motion-reduce:transition-none"
+            data-studio-shot={effectiveShot}
+            style={{
+              transform: cameraTransform,
+              transformOrigin: `${cameraAnchor}% 45%`,
+              willChange: "transform",
+            }}
           >
-            <span className={`size-[clamp(.28rem,.6vw,.44rem)] rounded-full ${studioIsLive ? "animate-pulse bg-white" : studioNeedsAudio ? "bg-amber-100" : "bg-cyan-300"}`} />
-            {t(stageStatusKey)}
-          </div>
-
-          {(studioState !== "idle" || runControlActive) && (
-            <div
-              className={`absolute right-[2.2%] top-[12%] z-50 flex flex-col items-end gap-2 ${isBroadcast ? "opacity-0 transition-opacity hover:opacity-100 focus-within:opacity-100" : ""}`}
-            >
-              {studioNeedsAudio && (
-                <button
-                  type="button"
-                  onClick={() => void activateStudioAudio()}
-                  className="rounded-full border border-amber-200/50 bg-amber-400 px-3 py-1.5 text-[clamp(.36rem,.78vw,.62rem)] font-bold text-slate-950 shadow-lg transition hover:bg-amber-300"
-                >
-                  {t("studioEnableAudio")}
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => void requestStopStudio()}
-                className="rounded-full border border-red-300/40 bg-red-600/95 px-3 py-1.5 text-[clamp(.36rem,.78vw,.62rem)] font-bold text-white shadow-lg transition hover:bg-red-500"
-              >
-                {t("studioStopLive")}
-              </button>
-            </div>
-          )}
-
-          {talk.moderator.kind !== "none" && (
-            <div className="absolute left-1/2 top-[4%] z-30 max-w-[45%] -translate-x-1/2 truncate rounded-full border border-white/10 bg-slate-950/60 px-[2%] py-[.7%] text-center text-[clamp(.34rem,.82vw,.62rem)] font-semibold text-slate-200 backdrop-blur">
-              {t("studioHostedBy", { name: talk.moderator.name || t("moderation") })}
-            </div>
-          )}
-
-          {talk.moderator.kind === "ai" && (
-            <video
-              ref={moderatorVideoRef}
-              autoPlay
-              playsInline
-              preload="auto"
-              className="pointer-events-none absolute size-px opacity-0"
+            <Image
+              src={studioTheme.image}
+              alt=""
+              fill
+              priority
+              sizes="(max-width: 1152px) 100vw, 1152px"
+              className="object-cover"
             />
-          )}
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,transparent_0%,rgba(2,8,18,.06)_52%,rgba(2,8,18,.44)_100%)]" />
 
-          {talk.participants.map((participant, index) => {
-            const layout = seatLayout(index);
-            const avatar = studioAvatarForSeat(index);
-            const isActive = activeParticipantIndex === index;
-            const isTarget = targetParticipantIndex === index;
-            const isLiveAvatar =
-              participant.kind === "ai" && seatVideoReady[index];
-            const isCamera = cameraSeat === index;
+            {talk.moderator.kind === "ai" && (
+              <video
+                ref={moderatorVideoRef}
+                autoPlay
+                playsInline
+                preload="auto"
+                className="pointer-events-none absolute size-px opacity-0"
+              />
+            )}
+
+            {talk.participants.map((participant, index) => {
+              const layout = seatLayout(index);
+              const avatar = studioAvatarForSeat(index);
+              const isActive = activeParticipantIndex === index;
+              const isTarget = targetParticipantIndex === index;
+              const isLiveAvatar =
+                participant.kind === "ai" && seatVideoReady[index];
+              const isCamera = cameraSeat === index;
 
             return (
               <div key={`${participant.name}-${index}`}>
@@ -1246,7 +1253,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                   )}
                 </div>
 
-                {!isBroadcast && (
+                {!isBroadcast && effectiveShot === "wide" && (
                   <div
                     className="absolute bottom-[4.4%] z-30 transition-all duration-500 ease-out"
                     style={{
@@ -1268,28 +1275,70 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                   </div>
                 )}
               </div>
-            );
-          })}
+              );
+            })}
 
-          {studioTheme.foregroundStartPercent !== undefined ? (
+            {studioTheme.foregroundStartPercent !== undefined ? (
+              <div
+                className="pointer-events-none absolute inset-0 z-[25]"
+                style={{
+                  clipPath: `inset(${studioTheme.foregroundStartPercent}% 0 0 0)`,
+                }}
+              >
+                <Image
+                  src={studioTheme.image}
+                  alt=""
+                  fill
+                  priority
+                  sizes="(max-width: 1152px) 100vw, 1152px"
+                  className="object-cover"
+                />
+              </div>
+            ) : (
+              <div className="absolute inset-x-[-4%] bottom-[-14%] z-20 h-[31%] rounded-[50%_50%_0_0/34%_34%_0_0] border-t border-cyan-200/25 bg-[linear-gradient(180deg,rgba(30,54,73,.96),rgba(5,13,24,.99)_38%,#030811)] shadow-[0_-12px_36px_rgba(20,184,220,.12)]">
+                <div className="absolute inset-x-[18%] top-[8%] h-[14%] rounded-full bg-cyan-300/10 blur-lg" />
+              </div>
+            )}
+          </div>
+
+          <div className="absolute left-[2.2%] top-[3.5%] z-40 flex items-center gap-2 rounded-full border border-white/15 bg-[#07101d]/75 px-[2.1%] py-[.8%] text-[clamp(.38rem,1vw,.72rem)] font-black tracking-[.22em] text-white shadow-lg backdrop-blur-md">
+            <span className="inline-flex size-[clamp(.32rem,.72vw,.52rem)] rounded-full bg-cyan-400 shadow-[0_0_12px_#22d3ee]" />
+            CONCLAVIA
+          </div>
+          <div
+            className={`absolute right-[2.2%] top-[3.5%] z-40 flex items-center gap-1.5 rounded-full border px-[1.8%] py-[.75%] text-[clamp(.36rem,.9vw,.66rem)] font-bold uppercase tracking-[.18em] text-white shadow-lg ${studioIsLive ? "border-red-400/30 bg-red-600/90" : studioNeedsAudio ? "border-amber-300/40 bg-amber-500/90" : "border-cyan-200/25 bg-[#12314c]/90"}`}
+            data-studio-status={stageStatusKey}
+          >
+            <span className={`size-[clamp(.28rem,.6vw,.44rem)] rounded-full ${studioIsLive ? "animate-pulse bg-white" : studioNeedsAudio ? "bg-amber-100" : "bg-cyan-300"}`} />
+            {t(stageStatusKey)}
+          </div>
+
+          {(studioState !== "idle" || runControlActive) && (
             <div
-              className="pointer-events-none absolute inset-0 z-[25]"
-              style={{
-                clipPath: `inset(${studioTheme.foregroundStartPercent}% 0 0 0)`,
-              }}
+              className={`absolute right-[2.2%] top-[12%] z-50 flex flex-col items-end gap-2 ${isBroadcast ? "opacity-0 transition-opacity hover:opacity-100 focus-within:opacity-100" : ""}`}
             >
-              <Image
-                src={studioTheme.image}
-                alt=""
-                fill
-                priority
-                sizes="(max-width: 1152px) 100vw, 1152px"
-                className="object-cover"
-              />
+              {studioNeedsAudio && (
+                <button
+                  type="button"
+                  onClick={() => void activateStudioAudio()}
+                  className="rounded-full border border-amber-200/50 bg-amber-400 px-3 py-1.5 text-[clamp(.36rem,.78vw,.62rem)] font-bold text-slate-950 shadow-lg transition hover:bg-amber-300"
+                >
+                  {t("studioEnableAudio")}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void requestStopStudio()}
+                className="rounded-full border border-red-300/40 bg-red-600/95 px-3 py-1.5 text-[clamp(.36rem,.78vw,.62rem)] font-bold text-white shadow-lg transition hover:bg-red-500"
+              >
+                {t("studioStopLive")}
+              </button>
             </div>
-          ) : (
-            <div className="absolute inset-x-[-4%] bottom-[-14%] z-20 h-[31%] rounded-[50%_50%_0_0/34%_34%_0_0] border-t border-cyan-200/25 bg-[linear-gradient(180deg,rgba(30,54,73,.96),rgba(5,13,24,.99)_38%,#030811)] shadow-[0_-12px_36px_rgba(20,184,220,.12)]">
-              <div className="absolute inset-x-[18%] top-[8%] h-[14%] rounded-full bg-cyan-300/10 blur-lg" />
+          )}
+
+          {talk.moderator.kind !== "none" && (
+            <div className="absolute left-1/2 top-[4%] z-30 max-w-[45%] -translate-x-1/2 truncate rounded-full border border-white/10 bg-slate-950/60 px-[2%] py-[.7%] text-center text-[clamp(.34rem,.82vw,.62rem)] font-semibold text-slate-200 backdrop-blur">
+              {t("studioHostedBy", { name: talk.moderator.name || t("moderation") })}
             </div>
           )}
 
@@ -1330,61 +1379,65 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         </div>
 
         {!isBroadcast && (
-        <div className="border-t border-white/10 bg-[#0a1422] p-4 text-slate-100 sm:p-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[.16em] text-cyan-300">
-                    {t("studioDirector")}
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-slate-400">
-                    {t("studioDirectorHelp")}
-                  </p>
+          <div className="border-t border-white/10 bg-[#0a1422] p-4 text-slate-100 sm:p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[.16em] text-cyan-300">
+                      {t("studioDirector")}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-slate-400">
+                      {t("studioDirectorHelp")}
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
+                    {t(studioStateKey)}
+                  </span>
                 </div>
-                <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
-                  {t(studioStateKey)}
-                </span>
+                <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl border border-white/10 bg-black/20 p-1">
+                  {(["auto", "wide", "close", "duo"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      aria-pressed={shotMode === mode}
+                      onClick={() => setShotMode(mode)}
+                      className={`min-h-10 rounded-lg px-2 py-2 text-[11px] font-semibold transition ${shotMode === mode ? "bg-cyan-400 text-slate-950" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
+                    >
+                      {t(
+                        mode === "auto"
+                          ? "studioShotAuto"
+                          : mode === "wide"
+                            ? "studioShotWide"
+                            : mode === "close"
+                              ? "studioShotClose"
+                              : "studioShotDuo",
+                      )}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl border border-white/10 bg-black/20 p-1">
-                {(["auto", "wide", "close", "duo"] as const).map((mode) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    aria-pressed={shotMode === mode}
-                    onClick={() => setShotMode(mode)}
-                    className={`min-h-10 rounded-lg px-2 py-2 text-[11px] font-semibold transition ${shotMode === mode ? "bg-cyan-400 text-slate-950" : "text-slate-400 hover:bg-white/5 hover:text-white"}`}
-                  >
-                    {t(
-                      mode === "auto"
-                        ? "studioShotAuto"
-                        : mode === "wide"
-                          ? "studioShotWide"
-                          : mode === "close"
-                            ? "studioShotClose"
-                            : "studioShotDuo",
-                    )}
-                  </button>
-                ))}
-              </div>
-            </div>
 
-            {firstHumanSeat >= 0 && (
-              <button
-                type="button"
-                onClick={() => void toggleCamera()}
-                className="flex min-h-11 items-center justify-between gap-8 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-left text-xs font-semibold transition hover:bg-white/10 lg:min-w-52"
-              >
-                <span>
-                  {cameraSeat === null ? t("studioStartCamera") : t("studioStopCamera")}
-                </span>
-                <span
-                  className={`size-2 rounded-full ${cameraSeat === null ? "bg-slate-600" : "bg-emerald-400"}`}
-                />
-              </button>
+              {firstHumanSeat >= 0 && (
+                <button
+                  type="button"
+                  onClick={() => void toggleCamera()}
+                  className="flex min-h-11 items-center justify-between gap-8 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-left text-xs font-semibold transition hover:bg-white/10 lg:min-w-52"
+                >
+                  <span>
+                    {cameraSeat === null
+                      ? t("studioStartCamera")
+                      : t("studioStopCamera")}
+                  </span>
+                  <span
+                    className={`size-2 rounded-full ${cameraSeat === null ? "bg-slate-600" : "bg-emerald-400"}`}
+                  />
+                </button>
+              )}
+            </div>
+            {cameraError && (
+              <p className="mt-2 text-xs text-red-300">{cameraError}</p>
             )}
-          </div>
-          {cameraError && <p className="mt-2 text-xs text-red-300">{cameraError}</p>}
 
           <details className="mt-4 overflow-hidden rounded-xl border border-white/10 bg-black/15">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-xs font-semibold text-slate-300">
@@ -1482,8 +1535,8 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                 <span>{Math.round(volume * 100)}%</span>
               </label>
             </div>
-          </details>
-        </div>
+            </details>
+          </div>
         )}
       </section>
     );

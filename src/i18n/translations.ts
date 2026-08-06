@@ -172,7 +172,7 @@ const english = {
     "Choose the atmosphere of the programme. It changes the visual set, not the editorial behavior of guests or host.",
   studioThemeBroadcast: "Broadcast panel",
   studioThemeBroadcastHelp:
-    "Premium five-seat set with a layered desk, designed for clean 16:9 recording and live streaming.",
+    "Premium five-seat set with visible low-backed chairs and a layered desk, designed for clean 16:9 recording and live streaming.",
   studioThemeGarage: "Pop garage",
   studioThemeGarageHelp: "Bright, irreverent and DIY for creators, campus culture and fast conversations.",
   studioThemePulp: "Pulp podcast",
@@ -415,7 +415,7 @@ const english = {
   studioRemoteGuest: "Live guest",
   studioDirector: "Camera direction",
   studioDirectorHelp:
-    "Auto cuts between the full panel, direct two-shots, and close-ups according to the current intervention.",
+    "Auto moves one virtual camera: full panel for editorial beats, close-ups for arguments, and two-shots only for adjacent guests.",
   studioLiveSystem: "LiveAvatar cast",
   studioLiveSystemHelp:
     "The director pre-connects each synchronized video and voice only when that AI guest is about to speak.",
@@ -622,7 +622,7 @@ const italian: Record<TranslationKey, string> = {
     "Scegli l’atmosfera della trasmissione. Cambia il set visivo, non il comportamento editoriale di ospiti o conduttore.",
   studioThemeBroadcast: "Panel broadcast",
   studioThemeBroadcastHelp:
-    "Set premium a cinque posti con banco stratificato, progettato per registrazione e diretta pulita in 16:9.",
+    "Set premium a cinque posti con sedute visibili e banco stratificato, progettato per registrazione e diretta pulita in 16:9.",
   studioThemeGarage: "Pop garage",
   studioThemeGarageHelp: "Colorato, irriverente e DIY per creator, cultura giovane e confronti veloci.",
   studioThemePulp: "Pulp podcast",
@@ -866,7 +866,7 @@ const italian: Record<TranslationKey, string> = {
   studioRemoteGuest: "Ospite live",
   studioDirector: "Regia video",
   studioDirectorHelp:
-    "Auto alterna totale, confronto a due e primo piano in base al tipo di intervento.",
+    "Auto muove una sola camera virtuale: totale nei passaggi editoriali, primo piano nelle argomentazioni e confronto solo tra ospiti vicini.",
   studioLiveSystem: "Cast LiveAvatar",
   studioLiveSystemHelp:
     "La regia precollega video e voce sincronizzati soltanto quando l’ospite AI sta per parlare.",

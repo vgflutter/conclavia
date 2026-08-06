@@ -21,7 +21,7 @@ export const DEFAULT_STUDIO_THEME: StudioThemeId = "broadcast_panel";
 export const STUDIO_THEMES: readonly StudioTheme[] = [
   {
     id: "broadcast_panel",
-    image: "/studio/studio-broadcast-panel.webp",
+    image: "/studio/studio-broadcast-panel-seated.webp",
     foregroundStartPercent: 57,
     avatarBottomPercent: 38,
   },
