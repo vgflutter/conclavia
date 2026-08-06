@@ -103,7 +103,9 @@ interface LiveKitCommandTransport {
   };
 }
 
-const BASE_POSITIONS = [0, 19, 38, 57, 76];
+// Seat centres in the shared studio backgrounds are approximately
+// 17%, 33%, 50%, 67%, and 84% of the stage width.
+const BASE_POSITIONS = [5, 21, 38, 55, 72];
 const LIVEAVATAR_FULL_CREDITS_PER_MINUTE = 2;
 const MAX_CONCURRENT_LIVEAVATARS = 5;
 
@@ -1126,14 +1128,18 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                       <HumanSilhouette />
                     </div>
                   ) : (
-                    <Image
-                      src={avatar.image}
-                      alt=""
-                      fill
-                      loading="eager"
-                      sizes="32vw"
-                      className={`object-contain object-bottom drop-shadow-[0_18px_20px_rgba(0,0,0,.62)] transition-opacity duration-500 ${isLiveAvatar || isCamera ? "opacity-0" : "opacity-100"}`}
-                    />
+                    <div
+                      className={`absolute -left-[30%] bottom-0 aspect-video w-[160%] drop-shadow-[0_18px_20px_rgba(0,0,0,.62)] transition-opacity duration-500 ${isLiveAvatar || isCamera ? "opacity-0" : "opacity-100"}`}
+                    >
+                      <Image
+                        src={avatar.image}
+                        alt=""
+                        fill
+                        loading="eager"
+                        sizes="40vw"
+                        className="object-contain object-bottom"
+                      />
+                    </div>
                   )}
 
                   {participant.kind === "ai" && (
