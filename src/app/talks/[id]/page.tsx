@@ -120,15 +120,25 @@ export default async function TalkPage({ params }: TalkPageProps) {
               </p>
             )}
           </div>
-          <div className="flex shrink-0 flex-col gap-2 sm:items-stretch">
-            <Link href={`/talks/${talk.id}/run`} className="button-primary">
-              {t("runTalk")}
+          <div className="flex shrink-0 flex-col gap-2 sm:w-72">
+            <Link
+              href={`/talks/${talk.id}/run`}
+              className="rounded-xl bg-[#295c43] px-4 py-3.5 text-white transition hover:bg-[#1e4934]"
+            >
+              <span className="block text-sm font-bold">{t("runTalk")}</span>
+              <span className="mt-1 block text-xs leading-5 text-emerald-100/80">
+                {t("controlRoomHelp")}
+              </span>
             </Link>
             <Link
               href={`/talks/${talk.id}/broadcast`}
-              className="rounded-lg bg-[#07101d] px-4 py-2.5 text-center text-sm font-semibold text-cyan-200 transition hover:bg-[#10233a]"
+              target="_blank"
+              className="rounded-xl bg-[#07101d] px-4 py-3.5 text-cyan-100 transition hover:bg-[#10233a]"
             >
-              {t("openBroadcast")}
+              <span className="block text-sm font-bold">{t("openBroadcast")}</span>
+              <span className="mt-1 block text-xs leading-5 text-slate-400">
+                {t("broadcastOutputHelp")}
+              </span>
             </Link>
             <Link href={`/talks/${talk.id}/edit`} className="button-secondary text-center">
               {t("editTalk")}

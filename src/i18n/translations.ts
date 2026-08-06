@@ -6,8 +6,10 @@ const english = {
   navLabel: "Primary navigation",
   navTalks: "Episodes",
   navNewTalk: "New episode",
-  runTalk: "Open live room",
-  openBroadcast: "Open broadcast output",
+  runTalk: "Open control room",
+  openBroadcast: "Open clean video output",
+  controlRoomHelp: "Manage the discussion, transcript, guests and camera direction.",
+  broadcastOutputHelp: "Clean 16:9 programme feed for OBS, recording and YouTube.",
   editTalk: "Edit episode",
   duplicateTalk: "Duplicate episode",
   editTalkTitle: "Edit episode",
@@ -343,6 +345,7 @@ const english = {
   runnerUnresolvedConflicts: "Unresolved conflicts",
   runnerProgress: "Participant turns {current} of {total}",
   runnerNewSession: "New live run",
+  runnerDownloadMaster: "Download 4K edit plan",
   runnerPause: "Stop the live talk",
   runnerGenerating: "Generating…",
   runnerRetry: "Retry intervention",
@@ -389,6 +392,8 @@ const english = {
   studioSpeakerUnavailable: "The current speaker has no active LiveAvatar session.",
   studioSpeechTimeout: "LiveAvatar did not complete the intervention in time.",
   studioSpeechError: "LiveAvatar could not play the intervention.",
+  studioAlreadyActive:
+    "This episode is already on air in another Conclavia window. Stop that output before starting a second one.",
   studioSpeakerLimit:
     "This cast requires {current} AI speakers, but the current plan allows {maximum} concurrent LiveAvatars. An AI moderator also counts as one.",
   studioInsufficientCredits:
@@ -414,6 +419,8 @@ const english = {
   studioHuman: "Human guest",
   studioRemoteGuest: "Live guest",
   studioDirector: "Camera direction",
+  studioReaction: "Reaction",
+  studioNextChapter: "Next chapter",
   studioDirectorHelp:
     "Auto moves one virtual camera: full panel for editorial beats, close-ups for arguments, and two-shots only for adjacent guests.",
   studioLiveSystem: "LiveAvatar cast",
@@ -457,8 +464,10 @@ const italian: Record<TranslationKey, string> = {
   navLabel: "Navigazione principale",
   navTalks: "Puntate",
   navNewTalk: "Nuova puntata",
-  runTalk: "Apri la diretta",
-  openBroadcast: "Apri uscita broadcast",
+  runTalk: "Apri regia",
+  openBroadcast: "Apri video per OBS / YouTube",
+  controlRoomHelp: "Gestisci discussione, trascrizione, ospiti e inquadrature.",
+  broadcastOutputHelp: "Segnale pulito 16:9 per OBS, registrazione e YouTube.",
   editTalk: "Modifica puntata",
   duplicateTalk: "Duplica puntata",
   editTalkTitle: "Modifica la puntata",
@@ -794,6 +803,7 @@ const italian: Record<TranslationKey, string> = {
   runnerUnresolvedConflicts: "Conflitti irrisolti",
   runnerProgress: "Turni dei partecipanti {current} di {total}",
   runnerNewSession: "Nuova diretta",
+  runnerDownloadMaster: "Scarica piano montaggio 4K",
   runnerPause: "Ferma la diretta",
   runnerGenerating: "Generazione…",
   runnerRetry: "Riprova intervento",
@@ -840,6 +850,8 @@ const italian: Record<TranslationKey, string> = {
   studioSpeakerUnavailable: "L’ospite corrente non ha una sessione LiveAvatar attiva.",
   studioSpeechTimeout: "LiveAvatar non ha completato l’intervento in tempo.",
   studioSpeechError: "LiveAvatar non è riuscito a riprodurre l’intervento.",
+  studioAlreadyActive:
+    "Questa puntata è già in onda in un’altra finestra di Conclavia. Ferma quell’uscita prima di avviarne una seconda.",
   studioSpeakerLimit:
     "Questo cast richiede {current} speaker AI, ma il piano attuale permette {maximum} LiveAvatar contemporanei. Anche un moderatore AI conta come uno.",
   studioInsufficientCredits:
@@ -865,6 +877,8 @@ const italian: Record<TranslationKey, string> = {
   studioHuman: "Ospite umano",
   studioRemoteGuest: "Ospite live",
   studioDirector: "Regia video",
+  studioReaction: "Reazione",
+  studioNextChapter: "Nuovo capitolo",
   studioDirectorHelp:
     "Auto muove una sola camera virtuale: totale nei passaggi editoriali, primo piano nelle argomentazioni e confronto solo tra ospiti vicini.",
   studioLiveSystem: "Cast LiveAvatar",

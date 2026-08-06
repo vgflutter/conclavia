@@ -17,9 +17,44 @@ interface SessionTokenResponse {
 
 interface SessionRequest {
   avatarId?: unknown;
+  seatIndex?: unknown;
+  speakerType?: unknown;
   sex?: unknown;
   language?: unknown;
   pace?: unknown;
+}
+
+function customAvatarForRequest(
+  body: SessionRequest,
+  sex: "female" | "male",
+  fallbackVoiceId: string,
+): { id: string; voiceId: string } | undefined {
+  const isModerator = body.speakerType === "moderator";
+  const seatIndex =
+    typeof body.seatIndex === "number" &&
+    Number.isInteger(body.seatIndex) &&
+    body.seatIndex >= 0 &&
+    body.seatIndex < 5
+      ? body.seatIndex
+      : undefined;
+  const prefix = isModerator
+    ? "LIVEAVATAR_MODERATOR"
+    : seatIndex !== undefined
+      ? `LIVEAVATAR_SEAT_${seatIndex + 1}`
+      : undefined;
+  if (!prefix) return undefined;
+
+  const id = process.env[`${prefix}_AVATAR_ID`]?.trim();
+  if (!id) return undefined;
+  const configuredSex = process.env[`${prefix}_SEX`]?.trim().toLowerCase();
+  if (configuredSex !== sex) {
+    throw new Error(`${prefix}_SEX must match the configured participant sex`);
+  }
+  return {
+    id,
+    voiceId:
+      process.env[`${prefix}_VOICE_ID`]?.trim() || fallbackVoiceId,
+  };
 }
 
 function normalizeLanguage(value: unknown): "it" | "en" {
@@ -62,7 +97,17 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
-  const avatar = requestedAvatar;
+  let avatar: { id: string; voiceId: string } = requestedAvatar;
+  try {
+    avatar =
+      customAvatarForRequest(body, sex, requestedAvatar.voiceId) ??
+      requestedAvatar;
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Invalid custom avatar" },
+      { status: 500 },
+    );
+  }
   const maxSessionDuration = liveAvatarMaxSessionSeconds();
   const language = normalizeLanguage(body.language);
   // ElevenLabs currently caps LiveAvatar voice speed at 1.2.

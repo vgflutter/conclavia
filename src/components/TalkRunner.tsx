@@ -416,20 +416,22 @@ export function TalkRunner({
     speechQueue.current = Promise.resolve();
     setAutoRunning(true);
     let current: TalkRunResponse | undefined = startingRun;
-    const studioReady = studioRef.current
+    const studioReady = await studioRef.current
       .startLiveStudio()
       .then(() => true)
-      .catch(() => {
+      .catch((caught: unknown) => {
         stopRequested.current = true;
         activeRequest.current?.abort();
-        setError(t("runnerAudioError"));
+        setError(
+          caught instanceof Error ? caught.message : t("runnerAudioError"),
+        );
         return false;
       });
 
     try {
+      if (!studioReady) return;
       while (current && current.status !== "completed" && !stopRequested.current) {
         current = await generateNext(current, true);
-        if (!(await studioReady)) break;
         if (
           !current ||
           current.status === "failed" ||
@@ -451,8 +453,24 @@ export function TalkRunner({
   }
 
   async function startNewBroadcast() {
+    if (!studioRef.current) {
+      setError(t("runnerAudioError"));
+      return;
+    }
+    try {
+      await studioRef.current.startLiveStudio();
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : t("runnerAudioError"),
+      );
+      return;
+    }
     const created = await createRun();
-    if (created) await runAutomatically(created);
+    if (created) {
+      await runAutomatically(created);
+    } else {
+      await studioRef.current.stopLiveStudio();
+    }
   }
 
   async function confirmStartRequest() {
@@ -794,7 +812,16 @@ export function TalkRunner({
                 {t("runnerPause")}
               </button>
             ) : completed ? (
-              <button type="button" onClick={() => setStartRequest("new")} disabled={requestPending} className="button-primary">{t("runnerNewSession")}</button>
+              <>
+                <a
+                  href={`/api/runs/${run.id}/broadcast-manifest`}
+                  download
+                  className="button-secondary"
+                >
+                  {t("runnerDownloadMaster")}
+                </a>
+                <button type="button" onClick={() => setStartRequest("new")} disabled={requestPending} className="button-primary">{t("runnerNewSession")}</button>
+              </>
             ) : waitingForHuman ? null : (
               <button type="button" onClick={() => setStartRequest("resume")} disabled={requestPending || run.status === "generating" || waitingForHuman} className="button-primary flex-1 sm:flex-none">
                 {requestPending || run.status === "generating" ? t("runnerGenerating") : run.status === "failed" ? t("runnerRetry") : t("runnerRunAutomatically")}

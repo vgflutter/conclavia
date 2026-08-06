@@ -77,6 +77,16 @@ export async function POST(_request: Request, context: RouteContext) {
       );
     }
 
+    const activeRun = await TalkRunModel.findOne({
+      talkId: document._id,
+      status: { $in: ["idle", "generating", "waiting_for_human"] },
+    })
+      .sort({ createdAt: -1 })
+      .exec();
+    if (activeRun) {
+      return NextResponse.json({ run: serializeTalkRun(activeRun) });
+    }
+
     const run = await TalkRunModel.create({
       talkId: document._id,
       status: "idle",

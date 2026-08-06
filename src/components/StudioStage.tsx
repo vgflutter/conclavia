@@ -20,6 +20,7 @@ import {
 import { getStudioTheme } from "@/lib/studio-themes";
 import type { TalkResponse } from "@/types/talk";
 import type {
+  TalkRunArcPhase,
   TalkRunIntent,
   TalkRunMessageResponse,
   TalkRunResponse,
@@ -115,6 +116,35 @@ const CLOSE_SHOT_POSITIONS = [27, 38, 50, 62, 73];
 const LIVEAVATAR_FULL_CREDITS_PER_MINUTE = 2;
 const MAX_CONCURRENT_LIVEAVATARS = 5;
 
+function arcPhaseKey(phase: TalkRunArcPhase): TranslationKey {
+  const keys: Record<TalkRunArcPhase, TranslationKey> = {
+    positions: "runnerArcPositions",
+    conflict: "runnerArcConflict",
+    examination: "runnerArcExamination",
+    synthesis: "runnerArcSynthesis",
+    conclusion: "runnerArcConclusion",
+  };
+  return keys[phase];
+}
+
+function chromaResolutionForShot(
+  shot: Exclude<ShotMode, "auto">,
+  index: number,
+  focusIndex: number,
+  companionIndex: number,
+  activeIndex?: number,
+): [number, number] {
+  if (shot === "close" && index === focusIndex) return [1920, 1080];
+  if (
+    shot === "duo" &&
+    (index === focusIndex || index === companionIndex)
+  ) {
+    return [1280, 720];
+  }
+  if (shot === "wide" && index === activeIndex) return [960, 540];
+  return [640, 360];
+}
+
 function intentKey(intent: TalkRunIntent): TranslationKey {
   const keys: Record<TalkRunIntent, TranslationKey> = {
     opening: "runnerIntentOpening",
@@ -183,6 +213,8 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const [moderatorLiveState, setModeratorLiveState] =
       useState<SeatLiveState>("offline");
     const [activeLiveParticipant, setActiveLiveParticipant] = useState<number>();
+    const [reactionPreviewIndex, setReactionPreviewIndex] = useState<number>();
+    const [phaseStinger, setPhaseStinger] = useState<TalkRunArcPhase>();
     const [cameraSeat, setCameraSeat] = useState<number | null>(null);
     const [cameraError, setCameraError] = useState<string | null>(null);
     const sessionsRef = useRef<Map<string, ManagedSession>>(new Map());
@@ -201,6 +233,8 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const moderatorVideoRef = useRef<HTMLVideoElement | null>(null);
     const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
     const cameraStreamRef = useRef<MediaStream | null>(null);
+    const studioLockReleaseRef = useRef<(() => void) | null>(null);
+    const previousArcPhaseRef = useRef<TalkRunArcPhase | undefined>(undefined);
 
     const latestMessage = run?.messages.at(-1);
     const showBroadcastContext =
@@ -213,7 +247,9 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const runCompleted = run?.status === "completed" && !runControlActive;
     const activeParticipantIndex = runCompleted || !showBroadcastContext
       ? undefined
-      : onAirMessage?.speakerType === "participant"
+      : reactionPreviewIndex !== undefined
+        ? reactionPreviewIndex
+        : onAirMessage?.speakerType === "participant"
         ? onAirMessage.participantIndex
         : activeLiveParticipant ??
           (currentTurn?.speakerType === "participant"
@@ -237,13 +273,17 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         talk.topic
       : talk.topic;
     const currentSpeaker = showBroadcastContext
-      ? onAirMessage?.speakerName ??
-        currentTurn?.speakerName ??
-        latestMessage?.speakerName
+      ? reactionPreviewIndex !== undefined
+        ? talk.participants[reactionPreviewIndex]?.name
+        : onAirMessage?.speakerName ??
+          currentTurn?.speakerName ??
+          latestMessage?.speakerName
       : undefined;
     const visibleCaption = showBroadcastContext
       ? onAirMessage?.content || streamingContent || latestMessage?.content || ""
       : "";
+    const visibleArcPhase =
+      activePlan?.arcPhase ?? run?.activeTurn?.arcPhase ?? run?.discussionState.arcPhase;
     const firstHumanSeat = talk.participants.findIndex(
       (participant) => participant.kind === "human",
     );
@@ -307,6 +347,25 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           ? duoDestination
           : 50;
     const cameraTransform = `translateX(${cameraDestination - cameraAnchor}%) scale(${cameraZoom})`;
+
+    useEffect(() => {
+      const previous = previousArcPhaseRef.current;
+      previousArcPhaseRef.current = visibleArcPhase;
+      if (
+        !previous ||
+        !visibleArcPhase ||
+        previous === visibleArcPhase ||
+        studioState === "idle"
+      ) {
+        return;
+      }
+      setPhaseStinger(visibleArcPhase);
+      const timer = window.setTimeout(
+        () => setPhaseStinger(undefined),
+        1_800,
+      );
+      return () => window.clearTimeout(timer);
+    }, [studioState, visibleArcPhase]);
 
     function participantSex(index: number): "female" | "male" {
       return talk.participants[index]?.sex === "male" ? "male" : "female";
@@ -468,6 +527,40 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       }
     }
 
+    async function acquireStudioLock(): Promise<void> {
+      if (studioLockReleaseRef.current || !("locks" in navigator)) return;
+
+      let reportAcquired: (acquired: boolean) => void = () => undefined;
+      const acquired = new Promise<boolean>((resolve) => {
+        reportAcquired = resolve;
+      });
+      void navigator.locks
+        .request(
+          `conclavia-live-studio:${talk.id}`,
+          { ifAvailable: true },
+          async (lock) => {
+            reportAcquired(Boolean(lock));
+            if (!lock) return;
+            await new Promise<void>((resolve) => {
+              studioLockReleaseRef.current = resolve;
+            });
+          },
+        )
+        .catch(() => {
+          reportAcquired(false);
+        });
+
+      if (!(await acquired)) {
+        throw new Error(t("studioAlreadyActive"));
+      }
+    }
+
+    function releaseStudioLock() {
+      const release = studioLockReleaseRef.current;
+      studioLockReleaseRef.current = null;
+      release?.();
+    }
+
     function releaseMediaElements() {
       for (const pipeline of chromaCleanupRefs.current.values()) pipeline.stop();
       chromaCleanupRefs.current.clear();
@@ -537,6 +630,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         ]),
       );
       releaseMediaElements();
+      releaseStudioLock();
       startPromiseRef.current = null;
       sdkRef.current = null;
       stoppingRef.current = false;
@@ -545,6 +639,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         setStudioState("idle");
         setAudioState("idle");
         setActiveLiveParticipant(undefined);
+        setReactionPreviewIndex(undefined);
         setSeatStates(talk.participants.map(() => "offline"));
         setSeatVideoReady(talk.participants.map(() => false));
         setModeratorLiveState("offline");
@@ -571,6 +666,9 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           avatarId: target.avatarId,
+          seatIndex: target.participantIndex,
+          speakerType:
+            target.participantIndex === undefined ? "moderator" : "participant",
           sex: target.sex,
           language: talk.language,
           pace: talk.settings.pace,
@@ -631,23 +729,14 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             try {
               chromaCleanupRefs.current.get(target.participantIndex)?.stop();
               const pipeline = startChromaKey(video, canvas);
-              if (
-                effectiveShot === "close" &&
-                target.participantIndex === activeParticipantIndex
-              ) {
-                pipeline.resize(1280, 720);
-              } else if (
-                effectiveShot === "duo" &&
-                (target.participantIndex === activeParticipantIndex ||
-                  target.participantIndex === targetParticipantIndex)
-              ) {
-                pipeline.resize(960, 540);
-              } else if (
-                isBroadcast &&
-                target.participantIndex === activeParticipantIndex
-              ) {
-                pipeline.resize(800, 450);
-              }
+              const [width, height] = chromaResolutionForShot(
+                effectiveShot,
+                target.participantIndex,
+                framedFocusIndex,
+                duoCompanionIndex,
+                activeParticipantIndex,
+              );
+              pipeline.resize(width, height);
               chromaCleanupRefs.current.set(target.participantIndex, pipeline);
             } catch {
               setStudioError(t("studioChromaError"));
@@ -656,6 +745,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         }
       });
       session.on(sdk.AgentEventsEnum.AVATAR_SPEAK_STARTED, () => {
+        setReactionPreviewIndex(undefined);
         setStudioState("speaking");
         if (target.participantIndex !== undefined) {
           setSeatState(target.participantIndex, "speaking");
@@ -724,6 +814,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         setStudioError(null);
         setStudioState("starting");
         setAudioState("idle");
+        await acquireStudioLock();
         const liveStatus = status ?? (await refreshStatus());
         if (!liveStatus?.configured || !liveStatus.productionEnabled) {
           throw new Error(t("studioNotConfigured"));
@@ -846,6 +937,15 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       managed.currentMessage = message;
       onBroadcastStateChange?.("loading", message);
       if (message.participantIndex !== undefined) {
+        const reactionTarget = message.targetParticipantIndex;
+        const canCutToReaction =
+          reactionTarget !== undefined &&
+          reactionTarget !== message.participantIndex &&
+          seatVideoReady[reactionTarget] &&
+          Math.abs(reactionTarget - message.participantIndex) > 1;
+        setReactionPreviewIndex(
+          canCutToReaction ? reactionTarget : undefined,
+        );
         setActiveLiveParticipant(message.participantIndex);
       }
       managed.video.muted = false;
@@ -874,6 +974,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           }
           setStudioState("ready");
           setActiveLiveParticipant(undefined);
+          setReactionPreviewIndex(undefined);
           onBroadcastStateChange?.("idle");
           resolve();
         };
@@ -1001,34 +1102,21 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     }
 
     useEffect(() => {
-      const duoCompanion =
-        activeParticipantIndex !== undefined
-          ? targetParticipantIndex !== undefined &&
-            targetParticipantIndex !== activeParticipantIndex
-            ? targetParticipantIndex
-            : (activeParticipantIndex + 1) % talk.participants.length
-          : undefined;
-
       for (const [index, pipeline] of chromaCleanupRefs.current) {
-        if (effectiveShot === "close" && index === activeParticipantIndex) {
-          pipeline.resize(1280, 720);
-        } else if (
-          effectiveShot === "duo" &&
-          (index === activeParticipantIndex || index === duoCompanion)
-        ) {
-          pipeline.resize(960, 540);
-        } else if (isBroadcast && index === activeParticipantIndex) {
-          pipeline.resize(800, 450);
-        } else {
-          pipeline.resize(640, 360);
-        }
+        const [width, height] = chromaResolutionForShot(
+          effectiveShot,
+          index,
+          framedFocusIndex,
+          duoCompanionIndex,
+          activeParticipantIndex,
+        );
+        pipeline.resize(width, height);
       }
     }, [
       activeParticipantIndex,
+      duoCompanionIndex,
       effectiveShot,
-      isBroadcast,
-      talk.participants.length,
-      targetParticipantIndex,
+      framedFocusIndex,
     ]);
 
     useImperativeHandle(ref, () => ({
@@ -1098,6 +1186,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           moderatorVideo.srcObject = null;
         }
         cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+        releaseStudioLock();
       };
     }, []);
 
@@ -1147,7 +1236,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       >
         <div className="relative aspect-video overflow-hidden bg-[#08111f]" data-testid="studio-stage">
           <div
-            className="absolute inset-0 transition-transform duration-500 ease-out motion-reduce:transition-none"
+            className="absolute inset-0 transition-transform duration-300 motion-reduce:transition-none [transition-timing-function:cubic-bezier(.2,.82,.2,1)]"
             data-studio-shot={effectiveShot}
             style={{
               transform: cameraTransform,
@@ -1161,7 +1250,15 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
               fill
               priority
               sizes="(max-width: 1152px) 100vw, 1152px"
-              className="object-cover"
+              className="object-cover transition-[filter] duration-300"
+              style={{
+                filter:
+                  effectiveShot === "close"
+                    ? "brightness(.9) saturate(.92) blur(.65px)"
+                    : effectiveShot === "duo"
+                      ? "brightness(.94) saturate(.96) blur(.25px)"
+                      : "brightness(1) saturate(1)",
+              }}
             />
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,transparent_0%,rgba(2,8,18,.06)_52%,rgba(2,8,18,.44)_100%)]" />
 
@@ -1194,6 +1291,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                   }}
                   aria-hidden={layout.opacity === 0}
                 >
+                  <div className="absolute inset-x-[24%] bottom-[2%] h-[16%] rounded-full bg-black/45 blur-xl" />
                   {(isActive || isTarget) && (
                     <div className={`absolute inset-x-[20%] bottom-[7%] h-[72%] rounded-full blur-2xl ${isActive ? "bg-cyan-300/30" : "bg-amber-300/18"}`} />
                   )}
@@ -1342,10 +1440,26 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             </div>
           )}
 
+          {phaseStinger && (
+            <div className="broadcast-stinger absolute inset-x-[18%] top-[30%] z-50 overflow-hidden rounded-xl border border-cyan-200/25 bg-[#050b15]/94 px-[4%] py-[2.4%] text-center text-white shadow-[0_24px_80px_rgba(0,0,0,.55)] backdrop-blur-lg">
+              <p className="text-[clamp(.3rem,.7vw,.54rem)] font-black uppercase tracking-[.28em] text-cyan-300">
+                {t("studioNextChapter")}
+              </p>
+              <p className="mt-[1%] text-[clamp(.7rem,2vw,1.65rem)] font-black tracking-tight">
+                {t(arcPhaseKey(phaseStinger))}
+              </p>
+              <div className="mx-auto mt-[1.6%] h-px w-[30%] bg-gradient-to-r from-transparent via-cyan-300 to-transparent" />
+            </div>
+          )}
+
           <div className="absolute bottom-[15.5%] left-1/2 z-40 flex max-w-[76%] -translate-x-1/2 items-center gap-[clamp(.3rem,1vw,.7rem)] rounded-lg border border-white/10 bg-[#050b15]/82 px-[2%] py-[1%] text-white shadow-2xl backdrop-blur-md">
-            {currentIntent && (
+            {(reactionPreviewIndex !== undefined || currentIntent) && (
               <span className="shrink-0 rounded bg-cyan-400/15 px-2 py-1 text-[clamp(.3rem,.7vw,.55rem)] font-bold uppercase tracking-[.12em] text-cyan-200">
-                {t(intentKey(currentIntent))}
+                {reactionPreviewIndex !== undefined
+                  ? t("studioReaction")
+                  : currentIntent
+                    ? t(intentKey(currentIntent))
+                    : null}
               </span>
             )}
             <div className="min-w-0">

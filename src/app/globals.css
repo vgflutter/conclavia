@@ -39,6 +39,27 @@ a {
   background: #cce2d4;
 }
 
+@keyframes conclavia-broadcast-stinger {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  14%,
+  78% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-8px) scale(1.01);
+  }
+}
+
+.broadcast-stinger {
+  animation: conclavia-broadcast-stinger 1.8s cubic-bezier(0.2, 0.82, 0.2, 1)
+    both;
+}
+
 @layer components {
   .container-page {
     @apply mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8;
