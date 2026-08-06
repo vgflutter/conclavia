@@ -13,15 +13,15 @@ Conclavia is designed to reproduce a live current-affairs programme: five in-stu
 The main automatic broadcast pre-connects the next AI speaker on demand, composites the synchronized video stream into the five-seat studio, and sends each generated intervention to the correct avatar. LiveAvatar supplies the voice, motion, expressions, and lip sync; OpenAI or Gemini supplies only the debate content and editorial direction.
 
 <p align="center">
-  <img src="docs/images/one-piece-close-up.png" alt="Conclavia close-up during the One Piece live debate" width="1086" />
+  <img src="docs/images/one-piece-close-up.png" alt="Conclavia close-up preview for a One Piece studio debate" width="1086" />
   <br />
-  <sub>Close-up direction during a real LiveAvatar intervention.</sub>
+  <sub>Close-up direction with the current casual LiveAvatar cast.</sub>
 </p>
 
 <p align="center">
-  <img src="docs/images/one-piece-five-guests.png" alt="Five LiveAvatar guests debating whether One Piece is the best anime ever" width="1086" />
+  <img src="docs/images/one-piece-five-guests.png" alt="Five casual LiveAvatar guests configured to debate whether One Piece is the best anime ever" width="1086" />
   <br />
-  <sub>Five synchronized AI guests live in the Pop Garage studio.</sub>
+  <sub>Five-seat offline preview in the Pop Garage studio; each portrait becomes its synchronized LiveAvatar stream on air.</sub>
 </p>
 
 ## How the MVP works
@@ -216,7 +216,7 @@ npm start
 
 The current MVP has been checked locally with strict linting and a production build. A MongoDB smoke test creates, reads, deletes, and confirms removal of a temporary talk; its principal pages have also been rendered at 390, 768, and 1440 pixels without horizontal overflow.
 
-The latest real integration run used the English question **“Is One Piece the best anime ever?”** and connected all five LiveAvatar FULL sessions on demand. It completed 10 participant turns plus an explicit closing in 3:31 wall-clock time, with contributions ranging from 14 to 68 words and about 6 to 25 seconds of estimated speech. The browser reported active audio and video tracks, consecutive close-up frames changed while the guest spoke, all sessions closed after the final intervention, and the run consumed 31 LiveAvatar credits. The two studio images above come directly from that run. These are integration checks, not a committed automated test suite.
+The latest real integration run used the English question **“Is One Piece the best anime ever?”** and connected all five LiveAvatar FULL sessions on demand. It completed 10 participant turns plus an explicit closing in 3:31 wall-clock time, with contributions ranging from 14 to 68 words and about 6 to 25 seconds of estimated speech. The browser reported active audio and video tracks, consecutive close-up frames changed while the guest spoke, all sessions closed after the final intervention, and the run consumed 31 LiveAvatar credits. The studio images above are fresh offline previews of the current casual cast; they consume no credits and the same portraits are replaced by synchronized streams during a broadcast. These are integration checks, not a committed automated test suite.
 
 ## Project structure
 
