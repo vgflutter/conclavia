@@ -121,7 +121,9 @@ function planTask(plan: TalkRunTurnPlan): string {
     case "opening":
       return "Open the live talk, frame the central conflict, briefly locate the range of guests, and end with a sharp starting question.";
     case "closing":
-      return "Present the editorial conclusion already present in the shared state: answer the central question, then separate genuine agreements, decisive conditions, strongest remaining conflicts, and open questions. Do not replace that conclusion, invent consensus, or declare a winner.";
+      return plan.speakerType === "participant"
+        ? "Give your final position on the central question. Use the editorial conclusion as context, acknowledge the strongest point that survived the exchange, and name the decisive disagreement or condition that remains. Speak from your own perspective; do not impersonate a neutral host, invent consensus, or declare a winner."
+        : "Present the editorial conclusion already present in the shared state: answer the central question, then separate genuine agreements, decisive conditions, strongest remaining conflicts, and open questions. Do not replace that conclusion, invent consensus, or declare a winner.";
     case "moderation":
       return `Intervene visibly as an active host: stop drift, expose the unresolved point, or redirect the exchange.${target}`;
     case "question":

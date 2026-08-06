@@ -33,7 +33,9 @@ export function shouldReviewAfterTurn(
   run: TalkRunResponse,
   plan: TalkRunTurnPlan,
 ): boolean {
-  if (plan.speakerType !== "participant") return false;
+  if (plan.speakerType !== "participant" || plan.intent === "closing") {
+    return false;
+  }
   const nextCount = run.participantTurnCount + 1;
   const plannedSeconds = estimateAirtimeSeconds(plan.maxWords, plan.speakerType);
   const timeLimitApproaching =
@@ -44,36 +46,36 @@ export function shouldReviewAfterTurn(
   const lateArc = run.discussionState.arcPhase === "examination";
   return (
     nextCount >= run.maxTurns ||
-    (lateArc ? nextCount % 2 === 0 : nextCount % 3 === 0)
+    (lateArc ? nextCount % 3 === 0 : nextCount % 4 === 0)
   );
 }
 
 const BASE_WORD_RANGES: Record<TalkRunIntent, [number, number]> = {
-  opening: [60, 110],
-  argument: [90, 150],
-  reply: [30, 70],
-  challenge: [30, 70],
-  question: [15, 45],
-  answer: [50, 110],
-  clarification: [50, 110],
-  partial_agreement: [30, 70],
-  interruption: [15, 35],
-  moderation: [15, 45],
-  closing: [90, 160],
+  opening: [38, 70],
+  argument: [42, 88],
+  reply: [18, 48],
+  challenge: [18, 45],
+  question: [9, 25],
+  answer: [24, 62],
+  clarification: [20, 52],
+  partial_agreement: [16, 42],
+  interruption: [8, 20],
+  moderation: [10, 28],
+  closing: [45, 78],
 };
 
 const PACE_SCALE: Record<TalkPace, number> = {
-  fast: 0.72,
+  fast: 0.78,
   balanced: 1,
-  deep: 1.25,
+  deep: 1.22,
 };
 
 export function estimateAirtimeSeconds(
   wordCount: number,
   speakerType: TalkRunTurnPlan["speakerType"],
 ): number {
-  const wordsPerMinute = speakerType === "moderator" ? 160 : 145;
-  const studioTransitionSeconds = speakerType === "moderator" ? 1 : 2;
+  const wordsPerMinute = speakerType === "moderator" ? 185 : 170;
+  const studioTransitionSeconds = 1;
   return Math.max(
     studioTransitionSeconds,
     Math.ceil((wordCount / wordsPerMinute) * 60) + studioTransitionSeconds,
@@ -102,13 +104,20 @@ function wordRange(
   intent: TalkRunIntent,
   pace: TalkPace,
   timeRatio = 1,
+  seed: string = intent,
 ): [number, number] {
   const [baseMin, baseMax] = BASE_WORD_RANGES[intent];
   const timeScale = timeRatio <= 0.1 ? 0.58 : timeRatio <= 0.22 ? 0.76 : 1;
   const scale = PACE_SCALE[pace] * timeScale;
+  const scaledMin = Math.max(8, Math.round(baseMin * scale));
+  const scaledMax = Math.max(scaledMin + 4, Math.round(baseMax * scale));
+  const spread = scaledMax - scaledMin;
+  const target = scaledMin + Math.round((spread * stableJitter(seed)) / 30);
+  const tolerance = Math.max(3, Math.round(spread * 0.12));
+
   return [
-    Math.max(12, Math.round(baseMin * scale)),
-    Math.max(20, Math.round(baseMax * scale)),
+    Math.max(scaledMin, target - tolerance),
+    Math.min(scaledMax, target + tolerance),
   ];
 }
 
@@ -179,6 +188,7 @@ function moderatorPlan(
     intent,
     talk.settings.pace,
     remainingTimeRatio(run),
+    `${talk.id}:${run.messages.length}:moderator:${intent}`,
   );
   const isPrepared = intent === "opening" || intent === "closing";
 
@@ -382,13 +392,52 @@ function referenceStyle(
   return "idea_first";
 }
 
+function participantClosingPlan(
+  talk: TalkResponse,
+  run: TalkRunResponse,
+): TalkRunTurnPlan | undefined {
+  const participantIndex = talk.participants.reduce((selected, participant, index) => {
+    if (participant.kind !== "ai") return selected;
+    if (selected < 0) return index;
+    return participant.patience > talk.participants[selected].patience
+      ? index
+      : selected;
+  }, -1);
+  if (participantIndex < 0) return undefined;
+
+  const participant = talk.participants[participantIndex];
+  const [minWords, maxWords] = wordRange(
+    "closing",
+    talk.settings.pace,
+    remainingTimeRatio(run),
+    `${talk.id}:${run.messages.length}:${participantIndex}:closing`,
+  );
+  return {
+    speakerType: "participant",
+    participantIndex,
+    speakerName: participant.name,
+    speakerRole: participant.role,
+    intent: "closing",
+    threadLabel: discussionFocus(talk, run),
+    arcPhase: "conclusion",
+    preparationMode: "prepared",
+    referenceStyle: "implicit",
+    minWords,
+    maxWords,
+  };
+}
+
 export function chooseNextTurn(
   talk: TalkResponse,
   run: TalkRunResponse,
 ): TalkRunTurnPlan | undefined {
   if (run.phase === "completed") return undefined;
   if (run.phase === "opening") return moderatorPlan(talk, run, "opening");
-  if (run.phase === "closing") return moderatorPlan(talk, run, "closing");
+  if (run.phase === "closing") {
+    return talk.moderator.kind === "ai"
+      ? moderatorPlan(talk, run, "closing")
+      : participantClosingPlan(talk, run);
+  }
   if (run.discussionState.arcPhase === "conclusion") {
     return talk.moderator.kind === "ai" && talk.moderator.summarizeAtEnd
       ? moderatorPlan(talk, run, "closing")
@@ -425,6 +474,7 @@ export function chooseNextTurn(
     intent,
     talk.settings.pace,
     remainingTimeRatio(run),
+    `${talk.id}:${run.messages.length}:${participantIndex}:${intent}`,
   );
 
   return {

@@ -50,6 +50,8 @@ export async function POST(request: Request, context: RouteContext) {
                 send("editorial_review_started", {}),
               onEditorialReviewCompleted: (discussionState) =>
                 send("editorial_review_completed", { discussionState }),
+              onSpeechReady: (message) =>
+                send("speech_ready", { message }),
               onTurnSaved: (savedRun) =>
                 send("turn_complete", { run: savedRun }),
             },

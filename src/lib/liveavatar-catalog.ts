@@ -11,14 +11,14 @@ export interface StudioAvatar {
 export const STUDIO_AVATARS: readonly StudioAvatar[] = [
   {
     id: "9c59a215-4c9f-478f-9d95-edca74c7b0d0",
-    voiceId: "c84af063-5ce2-4370-8ef8-dcd0ef903d43",
+    voiceId: "8a5c5875-acdf-4571-b535-6f1000d6e480",
     name: "Alessandra",
     image: "/studio/avatars/alessandra.webp",
     sex: "female",
   },
   {
     id: "42700a53-38ab-4485-b46f-26be6e0953dc",
-    voiceId: "8a5c5875-acdf-4571-b535-6f1000d6e480",
+    voiceId: "6a928a3e-8c89-458a-988e-879ee71635d2",
     name: "Amina",
     image: "/studio/avatars/amina.webp",
     sex: "female",
@@ -32,7 +32,7 @@ export const STUDIO_AVATARS: readonly StudioAvatar[] = [
   },
   {
     id: "26393b8e-e944-4367-98ef-e2bc75c4b792",
-    voiceId: "6a928a3e-8c89-458a-988e-879ee71635d2",
+    voiceId: "8a5c5875-acdf-4571-b535-6f1000d6e480",
     name: "Katya",
     image: "/studio/avatars/katya.webp",
     sex: "female",

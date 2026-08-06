@@ -313,6 +313,11 @@ export function TalkRunner({ talk, initialRun }: TalkRunnerProps) {
                 : current,
             );
             setReviewingEditorial(false);
+          } else if (event.type === "speech_ready" && isRecord(event.message)) {
+            const message = event.message as unknown as TalkRunMessageResponse;
+            if (!speechPromise && !stopRequested.current) {
+              speechPromise = playMessage(message);
+            }
           } else if (event.type === "turn_complete" && isRecord(event.run)) {
             const savedRun = event.run as unknown as TalkRunResponse;
             setRun(savedRun);

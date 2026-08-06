@@ -379,7 +379,7 @@ const english = {
   runnerGeneratingFor: "Generating the intervention for {name}…",
   studioStatusError: "LiveAvatar status is temporarily unavailable.",
   studioPaidConfirm:
-    "Start the paid live studio? Audio will be enabled and the automatic safety timer will stop the session after a few seconds.",
+    "Start the paid live studio? Audio will be enabled and every LiveAvatar session will close when the broadcast ends or you stop it.",
   studioSessionError: "The LiveAvatar session could not be started.",
   studioSessionDisconnected: "A LiveAvatar guest disconnected unexpectedly.",
   studioSpeakerUnavailable: "The current speaker has no active LiveAvatar session.",
@@ -826,7 +826,7 @@ const italian: Record<TranslationKey, string> = {
   runnerGeneratingFor: "Generazione dell’intervento di {name}…",
   studioStatusError: "Lo stato di LiveAvatar non è momentaneamente disponibile.",
   studioPaidConfirm:
-    "Avviare lo studio live a pagamento? L’audio verrà attivato e il timer di sicurezza fermerà automaticamente la sessione dopo pochi secondi.",
+    "Avviare lo studio live a pagamento? L’audio verrà attivato e ogni sessione LiveAvatar si chiuderà alla fine della diretta o quando la fermerai.",
   studioSessionError: "Impossibile avviare la sessione LiveAvatar.",
   studioSessionDisconnected: "Un ospite LiveAvatar si è disconnesso inaspettatamente.",
   studioSpeakerUnavailable: "L’ospite corrente non ha una sessione LiveAvatar attiva.",

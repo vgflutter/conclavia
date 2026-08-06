@@ -65,8 +65,8 @@ export async function POST(request: Request) {
   const avatar = requestedAvatar;
   const maxSessionDuration = liveAvatarMaxSessionSeconds();
   const language = normalizeLanguage(body.language);
-  const speed =
-    body.pace === "fast" ? 1.04 : body.pace === "deep" ? 0.96 : 1;
+  // ElevenLabs currently caps LiveAvatar voice speed at 1.2.
+  const speed = 1.2;
 
   try {
     const session = await liveAvatarRequest<SessionTokenResponse>(
@@ -82,10 +82,10 @@ export async function POST(request: Request) {
             voice_settings: {
               provider: "elevenLabs",
               speed,
-              stability: 0.42,
-              similarity_boost: 0.76,
-              style: 0.2,
-              use_speaker_boost: true,
+              stability: 0.48,
+              similarity_boost: 0.75,
+              style: 0,
+              use_speaker_boost: false,
               model: "eleven_flash_v2_5",
               apply_language_text_normalization: false,
             },

@@ -85,6 +85,7 @@ interface ManagedSession {
   participantIndex?: number;
   session: LiveAvatarSession;
   video: HTMLVideoElement;
+  expiresAt: number;
   currentMessage?: TalkRunMessageResponse;
   finishSpeech?: (error?: Error) => void;
   speechTimer?: number;
@@ -102,7 +103,7 @@ interface LiveKitCommandTransport {
   };
 }
 
-const BASE_POSITIONS = [-2, 17, 36, 55, 74];
+const BASE_POSITIONS = [0, 19, 38, 57, 76];
 const LIVEAVATAR_FULL_CREDITS_PER_MINUTE = 2;
 const MAX_CONCURRENT_LIVEAVATARS = 5;
 
@@ -184,7 +185,6 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const startPromiseRef = useRef<Promise<void> | null>(null);
     const stoppingRef = useRef(false);
     const keepAliveTimerRef = useRef<number | null>(null);
-    const sessionLimitTimerRef = useRef<number | null>(null);
     const chromaCleanupRefs = useRef<Map<number, () => void>>(new Map());
     const avatarVideoRefs = useRef<(HTMLVideoElement | null)[]>([]);
     const avatarCanvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
@@ -396,10 +396,6 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         window.clearInterval(keepAliveTimerRef.current);
         keepAliveTimerRef.current = null;
       }
-      if (sessionLimitTimerRef.current !== null) {
-        window.clearTimeout(sessionLimitTimerRef.current);
-        sessionLimitTimerRef.current = null;
-      }
     }
 
     function releaseMediaElements() {
@@ -415,6 +411,31 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         moderatorVideo.pause();
         moderatorVideo.srcObject = null;
       }
+    }
+
+    async function retireManagedSession(managed: ManagedSession) {
+      if (sessionsRef.current.get(managed.key) !== managed) return;
+      sessionsRef.current.delete(managed.key);
+      if (managed.speechTimer !== undefined) {
+        window.clearTimeout(managed.speechTimer);
+      }
+      managed.finishSpeech?.();
+      if (managed.participantIndex !== undefined) {
+        const participantIndex = managed.participantIndex;
+        chromaCleanupRefs.current.get(participantIndex)?.();
+        chromaCleanupRefs.current.delete(participantIndex);
+        setSeatVideoIsReady(participantIndex, false);
+        setSeatState(participantIndex, "connecting");
+      } else {
+        setModeratorLiveState("connecting");
+      }
+      await Promise.allSettled([
+        fetch(`/api/liveavatar/sessions/${managed.sessionId}`, {
+          method: "DELETE",
+          keepalive: true,
+        }),
+        Promise.resolve().then(() => managed.session.stop()),
+      ]);
     }
 
     async function stopSessions(updateInterface: boolean) {
@@ -499,6 +520,9 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         participantIndex: target.participantIndex,
         session,
         video,
+        expiresAt:
+          Date.now() +
+          (payload.maxSessionDuration ?? status?.maxSessionSeconds ?? 300) * 1_000,
       };
       sessionsRef.current.set(target.key, managed);
 
@@ -567,14 +591,20 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       });
       session.on(sdk.SessionEvent.SESSION_DISCONNECTED, () => {
         if (!startupComplete) return;
+        if (sessionsRef.current.get(target.key) !== managed) return;
+        const interruptedSpeech = Boolean(managed.currentMessage);
         sessionsRef.current.delete(target.key);
         if (stoppingRef.current) return;
         if (target.participantIndex !== undefined) {
-          setSeatState(target.participantIndex, "error");
+          setSeatState(
+            target.participantIndex,
+            interruptedSpeech ? "error" : "offline",
+          );
           setSeatVideoIsReady(target.participantIndex, false);
         } else {
-          setModeratorLiveState("error");
+          setModeratorLiveState(interruptedSpeech ? "error" : "offline");
         }
+        if (!interruptedSpeech) return;
         managed.finishSpeech?.(new Error(t("studioSessionDisconnected")));
         setStudioState("error");
         setStudioError(t("studioSessionDisconnected"));
@@ -639,11 +669,6 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             void managed.session.keepAlive().catch(() => undefined);
           }
         }, 30_000);
-        sessionLimitTimerRef.current = window.setTimeout(() => {
-          setStudioError(t("studioDurationReached"));
-          onPauseRun?.();
-          void stopSessions(true);
-        }, Math.max(20, liveStatus.maxSessionSeconds - 2) * 1_000);
       })().catch(async (error: unknown) => {
         await stopSessions(false);
         setStudioState("error");
@@ -678,7 +703,12 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         if (isHumanParticipant || talk.moderator.kind === "human") return;
         throw new Error(t("studioSpeakerUnavailable"));
       }
-      if (sessionsRef.current.has(target.key)) return;
+      const existing = sessionsRef.current.get(target.key);
+      if (existing) {
+        const hasEnoughLifetime = existing.expiresAt - Date.now() > 60_000;
+        if (hasEnoughLifetime || existing.currentMessage) return;
+        await retireManagedSession(existing);
+      }
 
       const existingPromise = sessionStartPromisesRef.current.get(target.key);
       if (existingPromise) return existingPromise;
@@ -723,8 +753,18 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           ? "moderator"
           : `participant:${message.participantIndex}`;
       await prepareSpeaker(message);
-      const managed = sessionsRef.current.get(key);
+      let managed = sessionsRef.current.get(key);
       if (!managed) throw new Error(t("studioSpeakerUnavailable"));
+
+      const wordCount = message.content.split(/\s+/u).filter(Boolean).length;
+      const requiredLifetimeMs =
+        (Math.ceil((wordCount / 170) * 60) + 12) * 1_000;
+      if (managed.expiresAt - Date.now() < requiredLifetimeMs) {
+        await retireManagedSession(managed);
+        await prepareSpeaker(message);
+        managed = sessionsRef.current.get(key);
+        if (!managed) throw new Error(t("studioSpeakerUnavailable"));
+      }
 
       managed.currentMessage = message;
       onBroadcastStateChange?.("loading", message);
@@ -761,7 +801,6 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           resolve();
         };
         managed.finishSpeech = finish;
-        const wordCount = message.content.split(/\s+/u).filter(Boolean).length;
         managed.speechTimer = window.setTimeout(
           () => finish(new Error(t("studioSpeechTimeout"))),
           Math.max(30_000, Math.min(120_000, wordCount * 1_100)),
@@ -832,10 +871,10 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       if (effectiveShot === "close") {
         return index === framedFocusIndex
           ? {
-              left: "27%",
-              width: "46%",
+              left: "29%",
+              width: "42%",
               opacity: 1,
-              transform: "scale(1.04)",
+              transform: "translateY(-1.5%) scale(1.02)",
               zIndex: 24,
             }
           : {
@@ -883,13 +922,13 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       const isTarget = targetParticipantIndex === index;
       return {
         left: `${BASE_POSITIONS[index]}%`,
-        width: "28%",
+        width: "24%",
         opacity: isFocused ? 1 : isTarget ? 0.96 : 0.86,
         transform: isFocused
-          ? "translateY(-4%) scale(1.13)"
+          ? "translateY(-2%) scale(1.055)"
           : isTarget
-            ? "translateY(-1.5%) scale(1.035)"
-            : "scale(.96)",
+            ? "translateY(-.75%) scale(1.015)"
+            : "scale(.98)",
         zIndex: isFocused ? 24 : isTarget ? 18 : 10,
       };
     }
@@ -934,9 +973,6 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         stoppingRef.current = true;
         if (keepAliveTimerRef.current !== null) {
           window.clearInterval(keepAliveTimerRef.current);
-        }
-        if (sessionLimitTimerRef.current !== null) {
-          window.clearTimeout(sessionLimitTimerRef.current);
         }
         for (const managed of sessions.values()) {
           if (managed.speechTimer !== undefined) {
@@ -1077,7 +1113,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             return (
               <div key={`${participant.name}-${index}`}>
                 <div
-                  className="absolute bottom-[8%] h-[69%] transition-all duration-700 ease-out"
+                  className="absolute bottom-[8%] h-[63%] transition-all duration-500 ease-out"
                   style={layout}
                   aria-hidden={layout.opacity === 0}
                 >
@@ -1137,7 +1173,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                 </div>
 
                 <div
-                  className="absolute bottom-[4.4%] z-30 transition-all duration-700 ease-out"
+                  className="absolute bottom-[4.4%] z-30 transition-all duration-500 ease-out"
                   style={{
                     left: layout.left,
                     width: layout.width,

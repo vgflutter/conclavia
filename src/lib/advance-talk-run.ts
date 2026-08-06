@@ -59,6 +59,9 @@ interface AdvanceHooks {
   onEditorialReviewCompleted?: (
     state: TalkRunDiscussionState,
   ) => void | Promise<void>;
+  onSpeechReady?: (
+    message: TalkRunMessageResponse,
+  ) => void | Promise<void>;
   onTurnSaved?: (run: TalkRunResponse) => void | Promise<void>;
 }
 
@@ -197,10 +200,11 @@ function transitionAfterTurn(
       (discussionState.conclusionReadiness === "ready" ||
         discussionState.conclusionReadiness === "forced");
     if (hardLimitReached || semanticConclusionReached) {
-      phase =
-        talk.moderator.kind === "ai" && talk.moderator.summarizeAtEnd
-          ? "closing"
-          : "completed";
+      const hasAiClosingVoice =
+        (talk.moderator.kind === "ai" && talk.moderator.summarizeAtEnd) ||
+        (talk.moderator.kind === "none" &&
+          talk.participants.some((participant) => participant.kind === "ai"));
+      phase = hasAiClosingVoice ? "closing" : "completed";
     }
   } else {
     phase = "discussion";
@@ -360,7 +364,7 @@ async function replayPreparedText(
   const chunks = content.match(/(?:\S+\s*){1,3}/gu) ?? [content];
   for (const chunk of chunks) {
     await onDelta(chunk);
-    await new Promise((resolve) => setTimeout(resolve, 14));
+    await new Promise((resolve) => setTimeout(resolve, 4));
   }
 }
 
@@ -836,6 +840,8 @@ export async function advanceTalkRun(
     );
     let discussionState = projected.discussionState;
     if (editorialReviewNeeded) {
+      const generatedMessage = projected.messages.at(-1);
+      if (generatedMessage) await hooks.onSpeechReady?.(generatedMessage);
       await hooks.onEditorialReviewStarted?.();
       try {
         const review = await reviewEditorialArc(talk, projected);
