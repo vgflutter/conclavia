@@ -7,6 +7,7 @@ const english = {
   navTalks: "Episodes",
   navNewTalk: "New episode",
   runTalk: "Open live room",
+  openBroadcast: "Open broadcast output",
   editTalk: "Edit episode",
   duplicateTalk: "Duplicate episode",
   editTalkTitle: "Edit episode",
@@ -169,6 +170,9 @@ const english = {
   studioTheme: "Studio scenery",
   studioThemeHelp:
     "Choose the atmosphere of the programme. It changes the visual set, not the editorial behavior of guests or host.",
+  studioThemeBroadcast: "Broadcast panel",
+  studioThemeBroadcastHelp:
+    "Premium five-seat set with a layered desk, designed for clean 16:9 recording and live streaming.",
   studioThemeGarage: "Pop garage",
   studioThemeGarageHelp: "Bright, irreverent and DIY for creators, campus culture and fast conversations.",
   studioThemePulp: "Pulp podcast",
@@ -411,7 +415,7 @@ const english = {
   studioRemoteGuest: "Live guest",
   studioDirector: "Camera direction",
   studioDirectorHelp:
-    "Auto keeps all five guests visible and brings the current speaker forward.",
+    "Auto cuts between the full panel, direct two-shots, and close-ups according to the current intervention.",
   studioLiveSystem: "LiveAvatar cast",
   studioLiveSystemHelp:
     "The director pre-connects each synchronized video and voice only when that AI guest is about to speak.",
@@ -454,6 +458,7 @@ const italian: Record<TranslationKey, string> = {
   navTalks: "Puntate",
   navNewTalk: "Nuova puntata",
   runTalk: "Apri la diretta",
+  openBroadcast: "Apri uscita broadcast",
   editTalk: "Modifica puntata",
   duplicateTalk: "Duplica puntata",
   editTalkTitle: "Modifica la puntata",
@@ -615,6 +620,9 @@ const italian: Record<TranslationKey, string> = {
   studioTheme: "Scenografia dello studio",
   studioThemeHelp:
     "Scegli l’atmosfera della trasmissione. Cambia il set visivo, non il comportamento editoriale di ospiti o conduttore.",
+  studioThemeBroadcast: "Panel broadcast",
+  studioThemeBroadcastHelp:
+    "Set premium a cinque posti con banco stratificato, progettato per registrazione e diretta pulita in 16:9.",
   studioThemeGarage: "Pop garage",
   studioThemeGarageHelp: "Colorato, irriverente e DIY per creator, cultura giovane e confronti veloci.",
   studioThemePulp: "Pulp podcast",
@@ -858,7 +866,7 @@ const italian: Record<TranslationKey, string> = {
   studioRemoteGuest: "Ospite live",
   studioDirector: "Regia video",
   studioDirectorHelp:
-    "Auto mantiene visibili tutti e cinque gli ospiti e porta avanti chi sta parlando.",
+    "Auto alterna totale, confronto a due e primo piano in base al tipo di intervento.",
   studioLiveSystem: "Cast LiveAvatar",
   studioLiveSystemHelp:
     "La regia precollega video e voce sincronizzati soltanto quando l’ospite AI sta per parlare.",

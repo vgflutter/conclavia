@@ -38,6 +38,10 @@ const STUDIO_THEME_COPY: Record<
   StudioThemeId,
   { title: TranslationKey; description: TranslationKey }
 > = {
+  broadcast_panel: {
+    title: "studioThemeBroadcast",
+    description: "studioThemeBroadcastHelp",
+  },
   pop_garage: {
     title: "studioThemeGarage",
     description: "studioThemeGarageHelp",
@@ -1369,7 +1373,7 @@ export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
         <div className="space-y-6">
           <fieldset id="studio-theme">
             <legend className="label">{t("studioTheme")}</legend>
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
               {STUDIO_THEMES.map((theme) => {
                 const copy = STUDIO_THEME_COPY[theme.id];
                 const selected = talk.settings.studioTheme === theme.id;

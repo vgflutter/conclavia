@@ -91,7 +91,7 @@ export async function POST(request: Request) {
             },
           },
           video_settings: {
-            quality: "medium",
+            quality: "high",
             encoding: "H264",
           },
           is_sandbox: false,

@@ -48,10 +48,15 @@ function compileShader(
   return shader;
 }
 
+export interface ChromaKeyPipeline {
+  resize: (width: number, height: number) => void;
+  stop: () => void;
+}
+
 export function startChromaKey(
   video: HTMLVideoElement,
   canvas: HTMLCanvasElement,
-): () => void {
+): ChromaKeyPipeline {
   const gl = canvas.getContext("webgl", {
     alpha: true,
     antialias: true,
@@ -127,16 +132,26 @@ export function startChromaKey(
 
   draw();
 
-  return () => {
-    stopped = true;
-    if (animationFrame !== undefined) window.cancelAnimationFrame(animationFrame);
-    if (videoFrame !== undefined && "cancelVideoFrameCallback" in video) {
-      video.cancelVideoFrameCallback(videoFrame);
-    }
-    gl.deleteTexture(texture);
-    gl.deleteBuffer(buffer);
-    gl.deleteProgram(program);
-    gl.deleteShader(vertexShader);
-    gl.deleteShader(fragmentShader);
+  return {
+    resize(width, height) {
+      const nextWidth = Math.max(320, Math.round(width));
+      const nextHeight = Math.max(180, Math.round(height));
+      if (canvas.width === nextWidth && canvas.height === nextHeight) return;
+      canvas.width = nextWidth;
+      canvas.height = nextHeight;
+      gl.viewport(0, 0, nextWidth, nextHeight);
+    },
+    stop() {
+      stopped = true;
+      if (animationFrame !== undefined) window.cancelAnimationFrame(animationFrame);
+      if (videoFrame !== undefined && "cancelVideoFrameCallback" in video) {
+        video.cancelVideoFrameCallback(videoFrame);
+      }
+      gl.deleteTexture(texture);
+      gl.deleteBuffer(buffer);
+      gl.deleteProgram(program);
+      gl.deleteShader(vertexShader);
+      gl.deleteShader(fragmentShader);
+    },
   };
 }

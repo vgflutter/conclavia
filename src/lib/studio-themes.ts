@@ -1,4 +1,5 @@
 export const STUDIO_THEME_IDS = [
+  "broadcast_panel",
   "pop_garage",
   "pulp_podcast",
   "rooftop_hangout",
@@ -11,11 +12,19 @@ export type StudioThemeId = (typeof STUDIO_THEME_IDS)[number];
 export interface StudioTheme {
   id: StudioThemeId;
   image: string;
+  foregroundStartPercent?: number;
+  avatarBottomPercent?: number;
 }
 
-export const DEFAULT_STUDIO_THEME: StudioThemeId = "pop_garage";
+export const DEFAULT_STUDIO_THEME: StudioThemeId = "broadcast_panel";
 
 export const STUDIO_THEMES: readonly StudioTheme[] = [
+  {
+    id: "broadcast_panel",
+    image: "/studio/studio-broadcast-panel.webp",
+    foregroundStartPercent: 57,
+    avatarBottomPercent: 38,
+  },
   {
     id: "pop_garage",
     image: "/studio/studio-pop-garage.webp",

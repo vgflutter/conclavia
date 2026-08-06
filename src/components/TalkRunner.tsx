@@ -37,6 +37,7 @@ const ARC_PHASES: TalkRunArcPhase[] = [
 interface TalkRunnerProps {
   talk: TalkResponse;
   initialRun: TalkRunResponse | null;
+  presentation?: "standard" | "broadcast";
 }
 
 interface RunApiResponse {
@@ -122,7 +123,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function TalkRunner({ talk, initialRun }: TalkRunnerProps) {
+export function TalkRunner({
+  talk,
+  initialRun,
+  presentation = "standard",
+}: TalkRunnerProps) {
   const { t } = useTranslations();
   const [run, setRun] = useState(initialRun);
   const [requestPending, setRequestPending] = useState(false);
@@ -144,6 +149,7 @@ export function TalkRunner({ talk, initialRun }: TalkRunnerProps) {
     useState<TalkRunMessageResponse | null>(null);
   const [startRequest, setStartRequest] = useState<"new" | "resume" | null>(null);
   const stopRequested = useRef(false);
+  const speechQueue = useRef<Promise<void>>(Promise.resolve());
   const activeRequest = useRef<AbortController | null>(null);
   const studioRef = useRef<StudioStageHandle | null>(null);
   const liveTalk = run?.talkSnapshot ?? talk;
@@ -202,6 +208,14 @@ export function TalkRunner({ talk, initialRun }: TalkRunnerProps) {
       setNarratingMessage(null);
       setError(t("runnerAudioError"));
     }
+  }
+
+  function queueMessage(message: TalkRunMessageResponse): Promise<void> {
+    const queued = speechQueue.current
+      .catch(() => undefined)
+      .then(() => playMessage(message));
+    speechQueue.current = queued;
+    return queued;
   }
 
   async function createRun(): Promise<TalkRunResponse | undefined> {
@@ -316,7 +330,7 @@ export function TalkRunner({ talk, initialRun }: TalkRunnerProps) {
           } else if (event.type === "speech_ready" && isRecord(event.message)) {
             const message = event.message as unknown as TalkRunMessageResponse;
             if (!speechPromise && !stopRequested.current) {
-              speechPromise = playMessage(message);
+              speechPromise = queueMessage(message);
             }
           } else if (event.type === "turn_complete" && isRecord(event.run)) {
             const savedRun = event.run as unknown as TalkRunResponse;
@@ -328,7 +342,7 @@ export function TalkRunner({ talk, initialRun }: TalkRunnerProps) {
                 candidate.sequence > lastSequence && candidate.origin !== "human",
             );
             if (message && !speechPromise && !stopRequested.current) {
-              speechPromise = playMessage(message);
+              speechPromise = queueMessage(message);
             }
           } else if (event.type === "complete" && isRecord(event.run)) {
             finalRun = event.run as unknown as TalkRunResponse;
@@ -363,10 +377,9 @@ export function TalkRunner({ talk, initialRun }: TalkRunnerProps) {
             candidate.sequence > lastSequence && candidate.origin !== "human",
         );
         if (message && !stopRequested.current) {
-          speechPromise = playMessage(message);
+          speechPromise = queueMessage(message);
         }
       }
-      await speechPromise;
       return finalRun;
     } catch (caught) {
       if (!(caught instanceof DOMException && caught.name === "AbortError")) {
@@ -400,6 +413,7 @@ export function TalkRunner({ talk, initialRun }: TalkRunnerProps) {
     }
 
     stopRequested.current = false;
+    speechQueue.current = Promise.resolve();
     setAutoRunning(true);
     let current: TalkRunResponse | undefined = startingRun;
     const studioReady = studioRef.current
@@ -422,6 +436,7 @@ export function TalkRunner({ talk, initialRun }: TalkRunnerProps) {
           current.status === "waiting_for_human"
         ) break;
       }
+      await speechQueue.current;
     } finally {
       setAutoRunning(false);
       if (
@@ -550,6 +565,50 @@ export function TalkRunner({ talk, initialRun }: TalkRunnerProps) {
   }
 
   if (!run) {
+    if (presentation === "broadcast") {
+      return (
+        <>
+          <main className="fixed inset-0 z-[80] flex items-center bg-black">
+            <div className="relative w-full">
+              <StudioStage
+                ref={studioRef}
+                talk={liveTalk}
+                run={null}
+                presentation="broadcast"
+                broadcastAudioState={broadcastAudioState}
+                broadcastMessage={narratingMessage ?? undefined}
+                runControlActive={autoRunning || requestPending}
+                onPauseRun={pauseAutomaticRun}
+                onBroadcastStateChange={handleBroadcastStateChange}
+              />
+              <div className="absolute inset-0 z-[60] flex items-center justify-center bg-[radial-gradient(circle_at_center,rgba(4,16,30,.48),rgba(1,6,14,.88))] px-6 text-center text-white">
+                <div className="max-w-3xl">
+                  <p className="text-sm font-black uppercase tracking-[.3em] text-cyan-300">
+                    CONCLAVIA · LIVE
+                  </p>
+                  <h1 className="mt-5 text-4xl font-black tracking-tight sm:text-6xl">
+                    {liveTalk.title}
+                  </h1>
+                  <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-200 sm:text-xl">
+                    {liveTalk.topic}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setStartRequest("new")}
+                    disabled={requestPending}
+                    className="mt-8 rounded-full bg-cyan-400 px-7 py-3.5 text-sm font-black uppercase tracking-[.12em] text-slate-950 shadow-[0_0_40px_rgba(34,211,238,.35)] transition hover:bg-cyan-300 disabled:opacity-60"
+                  >
+                    {requestPending ? t("runnerCreating") : t("runnerRunAutomatically")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </main>
+          {startConfirmation}
+        </>
+      );
+    }
+
     return (
       <>
         <div className="space-y-5">
@@ -589,7 +648,7 @@ export function TalkRunner({ talk, initialRun }: TalkRunnerProps) {
     );
   }
 
-  const completed = run.status === "completed";
+  const completed = run.status === "completed" && !autoRunning;
   const visiblePlan = streamingPlan ?? run.activeTurn;
   const visibleArcPhase =
     visiblePlan?.arcPhase ?? run.discussionState.arcPhase;
@@ -604,6 +663,84 @@ export function TalkRunner({ talk, initialRun }: TalkRunnerProps) {
   const waitingForHuman = run.status === "waiting_for_human";
   const elapsedMinutes = Math.floor(run.estimatedAirtimeSeconds / 60);
   const elapsedSeconds = run.estimatedAirtimeSeconds % 60;
+
+  if (presentation === "broadcast") {
+    const activelyBroadcasting =
+      autoRunning ||
+      requestPending ||
+      run.status === "generating" ||
+      broadcastAudioState === "loading" ||
+      broadcastAudioState === "speaking";
+
+    return (
+      <>
+        <main className="group fixed inset-0 z-[80] flex items-center bg-black">
+          <div className="relative w-full">
+            <StudioStage
+              ref={studioRef}
+              talk={liveTalk}
+              run={run}
+              presentation="broadcast"
+              activePlan={visiblePlan}
+              streamingContent={streamingContent}
+              broadcastAudioState={broadcastAudioState}
+              broadcastMessage={narratingMessage ?? undefined}
+              runControlActive={activelyBroadcasting}
+              onPauseRun={pauseAutomaticRun}
+              onBroadcastStateChange={handleBroadcastStateChange}
+            />
+
+            {!activelyBroadcasting && !completed && !waitingForHuman && (
+              <div className="absolute inset-0 z-[60] flex items-center justify-center bg-slate-950/60 px-6 text-center text-white backdrop-blur-[2px]">
+                <div className="max-w-xl rounded-2xl border border-white/15 bg-[#07101d]/90 p-7 shadow-2xl">
+                  <p className="text-xs font-black uppercase tracking-[.22em] text-cyan-300">
+                    {run.status === "failed"
+                      ? t("runnerStatusFailed")
+                      : t("studioReadyBadge")}
+                  </p>
+                  <h1 className="mt-3 text-2xl font-bold">{liveTalk.title}</h1>
+                  {error && (
+                    <p role="alert" className="mt-3 text-sm leading-6 text-red-200">
+                      {error}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setStartRequest("resume")}
+                    className="mt-6 rounded-full bg-cyan-400 px-6 py-3 text-sm font-black uppercase tracking-[.1em] text-slate-950 transition hover:bg-cyan-300"
+                  >
+                    {run.status === "failed" ? t("runnerRetry") : t("runnerRunAutomatically")}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {waitingForHuman && visiblePlan && (
+              <div className="absolute inset-x-[24%] bottom-[18%] z-[60] rounded-xl border border-amber-200/30 bg-slate-950/90 px-6 py-5 text-center text-white shadow-2xl backdrop-blur-lg">
+                <p className="text-xs font-black uppercase tracking-[.18em] text-amber-300">
+                  {t("runnerStatusWaitingHuman")}
+                </p>
+                <p className="mt-2 text-lg font-semibold">
+                  {t("runnerFloorTo", { name: visiblePlan.speakerName })}
+                </p>
+              </div>
+            )}
+
+            {completed && (
+              <button
+                type="button"
+                onClick={() => setStartRequest("new")}
+                className="absolute right-[2.2%] top-[12%] z-[70] rounded-full border border-white/20 bg-slate-950/85 px-4 py-2 text-xs font-bold text-white opacity-0 shadow-lg transition hover:bg-slate-800 group-hover:opacity-100 focus:opacity-100"
+              >
+                {t("runnerNewSession")}
+              </button>
+            )}
+          </div>
+        </main>
+        {startConfirmation}
+      </>
+    );
+  }
 
   return (
     <>

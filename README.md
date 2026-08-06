@@ -15,13 +15,13 @@ The main automatic broadcast pre-connects the next AI speaker on demand, composi
 <p align="center">
   <img src="docs/images/one-piece-close-up.png" alt="Conclavia close-up preview for a One Piece studio debate" width="1086" />
   <br />
-  <sub>Close-up direction with the current casual LiveAvatar cast.</sub>
+  <sub>A real LiveAvatar frame on air: synchronized voice, motion, lip sync, clean keying, and automatic close-up direction.</sub>
 </p>
 
 <p align="center">
   <img src="docs/images/one-piece-five-guests.png" alt="Five casual LiveAvatar guests configured to debate whether One Piece is the best anime ever" width="1086" />
   <br />
-  <sub>Five-seat offline preview in the Pop Garage studio; each portrait becomes its synchronized LiveAvatar stream on air.</sub>
+  <sub>The five-seat Broadcast Panel preview. The layered foreground desk places every guest inside the set instead of over it.</sub>
 </p>
 
 ## How the MVP works
@@ -59,15 +59,17 @@ Creating the persisted run does not call a provider. Starting the studio enables
 - Stream and persist every contribution, prepare the following turn while the current one is on air, and pause cleanly for guided human input.
 - Freeze the complete talk snapshot inside every run and record model and usage metadata for each generated intervention.
 
-### Live studio
+### Live studio and broadcast output
 
-- Present the talk in a responsive 16:9 five-seat studio with five selectable visual themes.
+- Present the talk in a responsive 16:9 five-seat studio with six selectable visual themes, including a layered broadcast set built for recording.
 - Connect LiveAvatar FULL sessions on demand and use their synchronized video, neural voice, expressions, and lip sync—without browser TTS or a static broadcast fallback.
 - Keep stable, language-appropriate avatars and voices; respect each configured guest’s sex.
 - Use the low-latency multilingual voice model at 1.2× speed, with a curated Italian voice rotation when the talk language is Italian.
 - Refresh a guest session before it can expire during an intervention; an idle expired session reconnects on its next assignment without stopping the studio.
-- Bring the active speaker and addressee forward automatically, with wide, close-up, and two-person framing overrides.
+- Cut automatically between the complete panel, a close-up, and a direct two-shot according to the current intervention; manual overrides remain in the control room.
+- Scale WebGL compositing dynamically up to 1280×720 for the active close-up while keeping inactive seats lightweight.
 - Show `On air` only after media is active, expose one immediate stop action, and keep technical telemetry collapsed until needed.
+- Provide a separate clean `/broadcast` output with a title slate, safe lower thirds, two-line captions, and a final-result card for OBS, YouTube, or a projector.
 - Support one local human camera after explicit browser permission while credentials, avatar allow-lists, and timeouts remain server-side.
 
 ## UX principles
@@ -95,6 +97,7 @@ Creating the persisted run does not call a provider. Starting the studio enables
 | `/talks/[id]` | View a saved talk configuration |
 | `/talks/[id]/edit` | Edit or duplicate a saved configuration |
 | `/talks/[id]/run` | Run or resume the talk inside the virtual studio and control room |
+| `/talks/[id]/broadcast` | Open the clean 16:9 programme output for recording or streaming |
 
 ## API routes
 
@@ -197,9 +200,25 @@ The API key is read only by server Route Handlers. The browser receives short-li
 
 The **Go live** action opens a clear cost preflight and then enables automatic direction. When a turn is planned, its LiveAvatar is pre-connected while the LLM writes; later turns reuse that speaker’s session. Generated text is sent as `avatar.speak_text` over LiveAvatar’s official `agent-control` channel, so LiveAvatar produces the voice and matching lip-synced video. There is no browser voice and no separate OpenAI TTS fallback. The UI declares that the voices are AI-generated.
 
-The server restricts sessions to a curated public avatar catalog, enforces the configured participant sex, uses 480p H.264 to control latency, and configures the LiveAvatar voice pipeline for the talk language. Eleven Flash 2.5 runs at the provider’s supported 1.2× maximum. Green backgrounds are removed in the browser through WebGL. A keep-alive protects silent guests while another participant speaks; sessions nearing their per-session limit are recycled safely, and every active stream closes when the talk ends or the operator stops it.
+The server restricts sessions to a curated public avatar catalog, enforces the configured participant sex, requests LiveAvatar’s high-quality H.264 output, and configures the voice pipeline for the talk language. Eleven Flash 2.5 runs at the provider’s supported 1.2× maximum. Green backgrounds are removed in the browser through GPU-accelerated WebGL. The raw media elements retain their real rendered dimensions so LiveKit adaptive streaming does not suspend an avatar that is being composited. A keep-alive protects silent guests while another participant speaks; sessions nearing their per-session limit are recycled safely, and every active stream closes when the talk ends or the operator stops it.
 
 LiveAvatar FULL currently costs 2 credits per active avatar minute. Five AI guests in a five-minute studio therefore have a maximum estimate of 50 credits. An AI moderator also consumes one concurrent session; the total number of AI guests plus an AI moderator cannot exceed five on the current plan. Human seats do not consume LiveAvatar credits.
+
+If the account has **Allow Overage** enabled, a zero plan balance is not treated as a client-side failure: Conclavia requests the session and lets LiveAvatar apply the account’s pay-as-you-go policy. The preflight remains a maximum estimate, not a guarantee of the final bill.
+
+## Broadcast and YouTube workflow
+
+Open `/talks/[id]/broadcast` in an OBS Browser Source. The output contains the programme only: no application header, transcript, provider telemetry, or permanent operator buttons. Move the pointer to the upper-right corner to reveal emergency controls; keep it outside the source during recording. The start slate still requires an explicit click and cost confirmation, so a page refresh can never silently open paid sessions.
+
+Recommended OBS setup for an initial 1080p production:
+
+1. Add a Browser Source at `1920×1080`, 30 FPS, pointing to the broadcast URL. Enable **Control audio via OBS** so the LiveAvatar programme appears in the OBS mixer.
+2. Set the canvas and scaled output to `1920×1080`. Use H.264, CBR at about `8,000 Kbps`, and a two-second keyframe interval for YouTube 1080p30.
+3. Use AAC audio at 48 kHz. Add a gentle compressor and a limiter in OBS to keep different guest voices consistent without clipping.
+4. Stream to YouTube over RTMPS, or record locally to MKV and remux to MP4 after the show. A local recording is strongly recommended even during a live stream.
+5. Run one private/unlisted rehearsal and verify the YouTube stream-health panel before scheduling a public broadcast.
+
+These values follow YouTube’s current [live encoder guidance](https://support.google.com/youtube/answer/2853702) and [upload encoding recommendations](https://support.google.com/youtube/answer/1722171). Increase resolution or bitrate only after measuring the complete machine, network, and five-avatar GPU load.
 
 ## Development commands
 
@@ -216,7 +235,7 @@ npm start
 
 The current MVP has been checked locally with strict linting and a production build. A MongoDB smoke test creates, reads, deletes, and confirms removal of a temporary talk; its principal pages have also been rendered at 390, 768, and 1440 pixels without horizontal overflow.
 
-The latest real integration run used the English question **“Is One Piece the best anime ever?”** and connected all five LiveAvatar FULL sessions on demand. It completed 10 participant turns plus an explicit closing in 3:31 wall-clock time, with contributions ranging from 14 to 68 words and about 6 to 25 seconds of estimated speech. The browser reported active audio and video tracks, consecutive close-up frames changed while the guest spoke, all sessions closed after the final intervention, and the run consumed 31 LiveAvatar credits. The studio images above are fresh offline previews of the current casual cast; they consume no credits and the same portraits are replaced by synchronized streams during a broadcast. These are integration checks, not a committed automated test suite.
+The latest real integration checks used the English question **“Is One Piece the best anime ever?”**. A five-guest pacing run completed five interventions in 96 seconds with 84 seconds of estimated speech; speculative generation reduced the longest measured off-air gap to 6.6 seconds, and all five paid sessions closed. A separate Chrome media run exposed three simultaneous live audio tracks, three H.264 video tracks, and three active WebGL canvases; it completed 59 seconds of estimated speech in 67 seconds and produced the live close-up shown above. Every temporary talk and run was deleted afterward and MongoDB was confirmed empty. These are real integration checks, not a committed automated test suite.
 
 ## Project structure
 
@@ -257,9 +276,9 @@ During a text session, `automatic` and `random` modes are translated into stable
 
 ## Talk runner and virtual studio
 
-Open `/talks/[id]/run` or select **Open live room** from a saved configuration. The single **Go live** action confirms the maximum LiveAvatar cost, creates or resumes the persisted run, and starts automatic direction. The next speaker is pre-connected on demand while the intervention is generated. Each message is individually persisted. As soon as a turn is ready it is sent to the corresponding LiveAvatar; persistence, editorial review, and preparation of the following turn continue in parallel. If the next guest already has an independent argument ready, the prompt explicitly avoids pretending it is a reply.
+Open `/talks/[id]/run` for the control room, or `/talks/[id]/broadcast` for the clean programme feed. The single **Go live** action confirms the maximum LiveAvatar cost, creates or resumes the persisted run, and starts automatic direction. The next speaker is pre-connected on demand while the intervention is generated. Each message is individually persisted. As soon as a turn is ready it is placed in the speech queue; the following contribution can be generated while the current guest is still talking, but synchronized voices never overlap. Persistence, editorial review, and avatar preparation continue off-air in parallel. If the next guest already has an independent argument ready, the prompt explicitly avoids pretending it is a reply.
 
-The virtual studio has an offline preview before a run begins. During a run, an AI portrait is replaced by its real LiveAvatar video as soon as that speaker connects. Automatic direction keeps all five seats in frame, raises the speaker currently being heard, and gives the addressee secondary emphasis. The control room can override this behavior with wide, close-up, or two-person framing. The badge shows `On air` only while a LiveAvatar is actually speaking. Stock seated avatars render their own complete rooms, so the shared studio deliberately uses the green-screen catalog; a truly seated shared set will require custom green-screen avatars.
+The virtual studio has an offline preview before a run begins. During a run, an AI portrait is replaced by its real LiveAvatar video as soon as that speaker connects. Automatic direction uses a full panel for openings and conclusions, a close-up for independent arguments, and a two-shot when one guest directly addresses another. The control room can override this behavior. The layered Broadcast Panel places avatar torsos behind a real foreground desk, which creates a convincing seated-panel composition without requiring separate room footage from each stock avatar. The badge shows `On air` only while a LiveAvatar is actually speaking.
 
 The runner treats `maxTurns` as a safety ceiling. The configured duration is an operational airtime budget: every intervention receives an estimated spoken duration, late turns become shorter, and reaching the time or turn ceiling forces an honest editorial close. Structured checkpoints run at selected milestones and may close earlier only after a meaningful minimum and at least one synthesis contribution. A valid ending can be agreement, conditional agreement, clarified disagreement, or an explicitly open outcome. With an AI host, the shared state drives the host’s closing summary; without one, the most patient AI guest gives a final position while staying in character.
 

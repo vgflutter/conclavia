@@ -13,7 +13,10 @@ import type { LiveAvatarSession } from "@heygen/liveavatar-web-sdk";
 import { useTranslations } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/translations";
 import { getStudioAvatar } from "@/lib/liveavatar-catalog";
-import { startChromaKey } from "@/lib/chroma-key";
+import {
+  startChromaKey,
+  type ChromaKeyPipeline,
+} from "@/lib/chroma-key";
 import { getStudioTheme } from "@/lib/studio-themes";
 import type { TalkResponse } from "@/types/talk";
 import type {
@@ -44,6 +47,7 @@ type SpeakerDescriptor = Pick<
 interface StudioStageProps {
   talk: TalkResponse;
   run: TalkRunResponse | null;
+  presentation?: "studio" | "broadcast";
   activePlan?: TalkRunTurnPlan;
   streamingContent?: string;
   broadcastAudioState?: BroadcastAudioState;
@@ -149,6 +153,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     {
       talk,
       run,
+      presentation = "studio",
       activePlan,
       streamingContent = "",
       broadcastAudioState = "idle",
@@ -160,6 +165,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     ref,
   ) {
     const { locale, t } = useTranslations();
+    const isBroadcast = presentation === "broadcast";
     const [shotMode, setShotMode] = useState<ShotMode>("auto");
     const [studioState, setStudioState] = useState<StudioState>("idle");
     const [audioState, setAudioState] = useState<AudioState>("idle");
@@ -187,7 +193,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const startPromiseRef = useRef<Promise<void> | null>(null);
     const stoppingRef = useRef(false);
     const keepAliveTimerRef = useRef<number | null>(null);
-    const chromaCleanupRefs = useRef<Map<number, () => void>>(new Map());
+    const chromaCleanupRefs = useRef<Map<number, ChromaKeyPipeline>>(new Map());
     const avatarVideoRefs = useRef<(HTMLVideoElement | null)[]>([]);
     const avatarCanvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
     const moderatorVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -202,7 +208,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const onAirMessage =
       broadcastAudioState === "speaking" ? broadcastMessage : undefined;
     const currentTurn = activePlan ?? run?.activeTurn;
-    const runCompleted = run?.status === "completed";
+    const runCompleted = run?.status === "completed" && !runControlActive;
     const activeParticipantIndex = runCompleted || !showBroadcastContext
       ? undefined
       : onAirMessage?.speakerType === "participant"
@@ -239,6 +245,21 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const firstHumanSeat = talk.participants.findIndex(
       (participant) => participant.kind === "human",
     );
+    const effectiveShot: Exclude<ShotMode, "auto"> =
+      shotMode !== "auto"
+        ? shotMode
+        : runCompleted || activeParticipantIndex === undefined
+          ? "wide"
+          : targetParticipantIndex !== undefined &&
+              currentIntent !== "opening" &&
+              currentIntent !== "closing" &&
+              currentIntent !== "moderation"
+            ? "duo"
+            : currentIntent === "opening" ||
+                currentIntent === "closing" ||
+                currentIntent === "moderation"
+              ? "wide"
+              : "close";
 
     function participantSex(index: number): "female" | "male" {
       return talk.participants[index]?.sex === "male" ? "male" : "female";
@@ -401,7 +422,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     }
 
     function releaseMediaElements() {
-      for (const cleanup of chromaCleanupRefs.current.values()) cleanup();
+      for (const pipeline of chromaCleanupRefs.current.values()) pipeline.stop();
       chromaCleanupRefs.current.clear();
       for (const video of avatarVideoRefs.current) {
         if (!video) continue;
@@ -424,7 +445,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       managed.finishSpeech?.();
       if (managed.participantIndex !== undefined) {
         const participantIndex = managed.participantIndex;
-        chromaCleanupRefs.current.get(participantIndex)?.();
+        chromaCleanupRefs.current.get(participantIndex)?.stop();
         chromaCleanupRefs.current.delete(participantIndex);
         setSeatVideoIsReady(participantIndex, false);
         setSeatState(participantIndex, "connecting");
@@ -561,11 +582,26 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           const canvas = avatarCanvasRefs.current[target.participantIndex];
           if (canvas) {
             try {
-              chromaCleanupRefs.current.get(target.participantIndex)?.();
-              chromaCleanupRefs.current.set(
-                target.participantIndex,
-                startChromaKey(video, canvas),
-              );
+              chromaCleanupRefs.current.get(target.participantIndex)?.stop();
+              const pipeline = startChromaKey(video, canvas);
+              if (
+                effectiveShot === "close" &&
+                target.participantIndex === activeParticipantIndex
+              ) {
+                pipeline.resize(1280, 720);
+              } else if (
+                effectiveShot === "duo" &&
+                (target.participantIndex === activeParticipantIndex ||
+                  target.participantIndex === targetParticipantIndex)
+              ) {
+                pipeline.resize(960, 540);
+              } else if (
+                isBroadcast &&
+                target.participantIndex === activeParticipantIndex
+              ) {
+                pipeline.resize(800, 450);
+              }
+              chromaCleanupRefs.current.set(target.participantIndex, pipeline);
             } catch {
               setStudioError(t("studioChromaError"));
             }
@@ -655,14 +691,6 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             }),
           );
         }
-        const minimumCredits = LIVEAVATAR_FULL_CREDITS_PER_MINUTE;
-        if (
-          liveStatus.creditsLeft !== undefined &&
-          liveStatus.creditsLeft < minimumCredits
-        ) {
-          throw new Error(t("studioInsufficientCredits"));
-        }
-
         sdkRef.current = await import("@heygen/liveavatar-web-sdk");
         setStudioState("ready");
 
@@ -868,8 +896,6 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     } {
       const focusIndex = activeParticipantIndex;
       const framedFocusIndex = focusIndex ?? 0;
-      const effectiveShot: Exclude<ShotMode, "auto"> =
-        shotMode === "auto" ? "wide" : shotMode;
       if (effectiveShot === "close") {
         return index === framedFocusIndex
           ? {
@@ -935,6 +961,37 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       };
     }
 
+    useEffect(() => {
+      const duoCompanion =
+        activeParticipantIndex !== undefined
+          ? targetParticipantIndex !== undefined &&
+            targetParticipantIndex !== activeParticipantIndex
+            ? targetParticipantIndex
+            : (activeParticipantIndex + 1) % talk.participants.length
+          : undefined;
+
+      for (const [index, pipeline] of chromaCleanupRefs.current) {
+        if (effectiveShot === "close" && index === activeParticipantIndex) {
+          pipeline.resize(1280, 720);
+        } else if (
+          effectiveShot === "duo" &&
+          (index === activeParticipantIndex || index === duoCompanion)
+        ) {
+          pipeline.resize(960, 540);
+        } else if (isBroadcast && index === activeParticipantIndex) {
+          pipeline.resize(800, 450);
+        } else {
+          pipeline.resize(640, 360);
+        }
+      }
+    }, [
+      activeParticipantIndex,
+      effectiveShot,
+      isBroadcast,
+      talk.participants.length,
+      targetParticipantIndex,
+    ]);
+
     useImperativeHandle(ref, () => ({
       startLiveStudio,
       prepareSpeaker,
@@ -990,7 +1047,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         sessions.clear();
         sessionStartPromises.clear();
         sdkRef.current = null;
-        for (const cleanup of chromaCleanups.values()) cleanup();
+        for (const pipeline of chromaCleanups.values()) pipeline.stop();
         chromaCleanups.clear();
         for (const video of avatarVideos) {
           if (!video) continue;
@@ -1042,7 +1099,13 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const studioTheme = getStudioTheme(talk.settings.studioTheme);
 
     return (
-      <section className="overflow-hidden rounded-[1.4rem] border border-slate-800 bg-[#07101d] shadow-[0_24px_80px_rgba(8,18,32,.22)]">
+      <section
+        className={
+          isBroadcast
+            ? "w-full overflow-hidden bg-[#07101d]"
+            : "overflow-hidden rounded-[1.4rem] border border-slate-800 bg-[#07101d] shadow-[0_24px_80px_rgba(8,18,32,.22)]"
+        }
+      >
         <div className="relative aspect-video overflow-hidden bg-[#08111f]" data-testid="studio-stage">
           <Image
             src={studioTheme.image}
@@ -1067,7 +1130,9 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           </div>
 
           {(studioState !== "idle" || runControlActive) && (
-            <div className="absolute right-[2.2%] top-[12%] z-50 flex flex-col items-end gap-2">
+            <div
+              className={`absolute right-[2.2%] top-[12%] z-50 flex flex-col items-end gap-2 ${isBroadcast ? "opacity-0 transition-opacity hover:opacity-100 focus-within:opacity-100" : ""}`}
+            >
               {studioNeedsAudio && (
                 <button
                   type="button"
@@ -1115,8 +1180,11 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             return (
               <div key={`${participant.name}-${index}`}>
                 <div
-                  className="absolute bottom-[8%] h-[63%] transition-all duration-500 ease-out"
-                  style={layout}
+                  className="absolute h-[63%] transition-all duration-500 ease-out"
+                  style={{
+                    ...layout,
+                    bottom: `${studioTheme.avatarBottomPercent ?? 8}%`,
+                  }}
                   aria-hidden={layout.opacity === 0}
                 >
                   {(isActive || isTarget) && (
@@ -1151,7 +1219,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                         autoPlay
                         playsInline
                         preload="auto"
-                        className="pointer-events-none absolute size-px opacity-0"
+                        className="pointer-events-none absolute -left-[30%] bottom-0 aspect-video w-[160%] opacity-0"
                       />
                       <canvas
                         ref={(element) => {
@@ -1178,32 +1246,52 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                   )}
                 </div>
 
-                <div
-                  className="absolute bottom-[4.4%] z-30 transition-all duration-500 ease-out"
-                  style={{
-                    left: layout.left,
-                    width: layout.width,
-                    opacity: layout.opacity,
-                    transform: layout.transform,
-                    zIndex: layout.zIndex + 20,
-                  }}
-                >
-                  <div className={`mx-auto w-[72%] min-w-0 rounded-md border px-[4%] py-[2.4%] text-center shadow-xl backdrop-blur-md ${isActive ? "border-cyan-300/70 bg-[#092b47]/95" : isTarget ? "border-amber-300/55 bg-[#182c42]/92" : "border-white/15 bg-[#07101d]/86"}`}>
-                    <p className="truncate text-[clamp(.34rem,.85vw,.68rem)] font-bold text-white">
-                      {participant.name || t("studioSeat", { number: index + 1 })}
-                    </p>
-                    <p className="truncate text-[clamp(.26rem,.59vw,.47rem)] text-slate-300">
-                      {participant.kind === "human" ? t("studioHuman") : participant.role}
-                    </p>
+                {!isBroadcast && (
+                  <div
+                    className="absolute bottom-[4.4%] z-30 transition-all duration-500 ease-out"
+                    style={{
+                      left: layout.left,
+                      width: layout.width,
+                      opacity: layout.opacity,
+                      transform: layout.transform,
+                      zIndex: layout.zIndex + 20,
+                    }}
+                  >
+                    <div className={`mx-auto w-[72%] min-w-0 rounded-md border px-[4%] py-[2.4%] text-center shadow-xl backdrop-blur-md ${isActive ? "border-cyan-300/70 bg-[#092b47]/95" : isTarget ? "border-amber-300/55 bg-[#182c42]/92" : "border-white/15 bg-[#07101d]/86"}`}>
+                      <p className="truncate text-[clamp(.34rem,.85vw,.68rem)] font-bold text-white">
+                        {participant.name || t("studioSeat", { number: index + 1 })}
+                      </p>
+                      <p className="truncate text-[clamp(.26rem,.59vw,.47rem)] text-slate-300">
+                        {participant.kind === "human" ? t("studioHuman") : participant.role}
+                      </p>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             );
           })}
 
-          <div className="absolute inset-x-[-4%] bottom-[-14%] z-20 h-[31%] rounded-[50%_50%_0_0/34%_34%_0_0] border-t border-cyan-200/25 bg-[linear-gradient(180deg,rgba(30,54,73,.96),rgba(5,13,24,.99)_38%,#030811)] shadow-[0_-12px_36px_rgba(20,184,220,.12)]">
-            <div className="absolute inset-x-[18%] top-[8%] h-[14%] rounded-full bg-cyan-300/10 blur-lg" />
-          </div>
+          {studioTheme.foregroundStartPercent !== undefined ? (
+            <div
+              className="pointer-events-none absolute inset-0 z-[25]"
+              style={{
+                clipPath: `inset(${studioTheme.foregroundStartPercent}% 0 0 0)`,
+              }}
+            >
+              <Image
+                src={studioTheme.image}
+                alt=""
+                fill
+                priority
+                sizes="(max-width: 1152px) 100vw, 1152px"
+                className="object-cover"
+              />
+            </div>
+          ) : (
+            <div className="absolute inset-x-[-4%] bottom-[-14%] z-20 h-[31%] rounded-[50%_50%_0_0/34%_34%_0_0] border-t border-cyan-200/25 bg-[linear-gradient(180deg,rgba(30,54,73,.96),rgba(5,13,24,.99)_38%,#030811)] shadow-[0_-12px_36px_rgba(20,184,220,.12)]">
+              <div className="absolute inset-x-[18%] top-[8%] h-[14%] rounded-full bg-cyan-300/10 blur-lg" />
+            </div>
+          )}
 
           <div className="absolute bottom-[15.5%] left-1/2 z-40 flex max-w-[76%] -translate-x-1/2 items-center gap-[clamp(.3rem,1vw,.7rem)] rounded-lg border border-white/10 bg-[#050b15]/82 px-[2%] py-[1%] text-white shadow-2xl backdrop-blur-md">
             {currentIntent && (
@@ -1224,12 +1312,24 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           </div>
 
           {visibleCaption && (
-            <div className="absolute inset-x-[15%] bottom-[1.1%] z-50 truncate rounded bg-black/70 px-[2%] py-[.55%] text-center text-[clamp(.3rem,.75vw,.58rem)] leading-relaxed text-white backdrop-blur-sm">
-              {visibleCaption.slice(0, 190)}
+            <div className="absolute inset-x-[14%] bottom-[3.5%] z-50 rounded-md bg-black/78 px-[2.4%] py-[.75%] text-center text-[clamp(.34rem,.86vw,.72rem)] font-medium leading-snug text-white shadow-2xl backdrop-blur-sm">
+              <p className="line-clamp-2">{visibleCaption}</p>
+            </div>
+          )}
+
+          {runCompleted && run?.discussionState.conclusion && (
+            <div className="absolute inset-x-[17%] bottom-[18%] z-50 rounded-xl border border-cyan-200/25 bg-[#06111f]/92 px-[3%] py-[2%] text-center text-white shadow-2xl backdrop-blur-lg">
+              <p className="text-[clamp(.34rem,.72vw,.62rem)] font-black uppercase tracking-[.2em] text-cyan-300">
+                {t("runnerConclusionTitle")}
+              </p>
+              <p className="mt-[1%] line-clamp-3 text-[clamp(.46rem,1.15vw,1rem)] font-semibold leading-relaxed">
+                {run.discussionState.conclusion.answer}
+              </p>
             </div>
           )}
         </div>
 
+        {!isBroadcast && (
         <div className="border-t border-white/10 bg-[#0a1422] p-4 text-slate-100 sm:p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0 flex-1">
@@ -1384,6 +1484,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             </div>
           </details>
         </div>
+        )}
       </section>
     );
   },

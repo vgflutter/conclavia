@@ -42,6 +42,7 @@ function formatModel(modelId: LlmModelId, locale: Locale): string {
 
 function studioThemeKey(theme: StudioThemeId): TranslationKey {
   const keys: Record<StudioThemeId, TranslationKey> = {
+    broadcast_panel: "studioThemeBroadcast",
     pop_garage: "studioThemeGarage",
     pulp_podcast: "studioThemePulp",
     rooftop_hangout: "studioThemeRooftop",
@@ -122,6 +123,12 @@ export default async function TalkPage({ params }: TalkPageProps) {
           <div className="flex shrink-0 flex-col gap-2 sm:items-stretch">
             <Link href={`/talks/${talk.id}/run`} className="button-primary">
               {t("runTalk")}
+            </Link>
+            <Link
+              href={`/talks/${talk.id}/broadcast`}
+              className="rounded-lg bg-[#07101d] px-4 py-2.5 text-center text-sm font-semibold text-cyan-200 transition hover:bg-[#10233a]"
+            >
+              {t("openBroadcast")}
             </Link>
             <Link href={`/talks/${talk.id}/edit`} className="button-secondary text-center">
               {t("editTalk")}
