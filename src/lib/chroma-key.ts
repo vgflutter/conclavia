@@ -6,7 +6,7 @@ const VERTEX_SHADER = `
     gl_Position = vec4(position, 0.0, 1.0);
     textureCoordinate = vec2(
       (position.x + 1.0) * 0.5,
-      1.0 - ((position.y + 1.0) * 0.5)
+      (position.y + 1.0) * 0.5
     );
   }
 `;
@@ -219,6 +219,10 @@ export function startChromaKey(
 
   gl.disable(gl.DEPTH_TEST);
   gl.disable(gl.BLEND);
+  // Browser video frames use a top-left origin while WebGL textures use a
+  // bottom-left origin. Flip once at upload; both render passes then share the
+  // same unmodified UVs and do not accidentally cancel each other out.
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
 
   let stopped = false;
   let animationFrame: number | undefined;

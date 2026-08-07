@@ -8,6 +8,13 @@ import {
   DEFAULT_STUDIO_THEME,
   normalizeStudioTheme,
 } from "@/lib/studio-themes";
+import { findStudioVoice } from "@/lib/liveavatar-catalog";
+
+function voiceDelivery(value: unknown) {
+  return value === "energetic" || value === "authoritative"
+    ? value
+    : "natural";
+}
 
 export function serializeTalk(talk: TalkDocument): TalkResponse {
   return {
@@ -37,6 +44,8 @@ export function serializeTalk(talk: TalkDocument): TalkResponse {
       modelOverride: isLlmModelId(participant.modelOverride)
         ? participant.modelOverride
         : undefined,
+      voiceId: findStudioVoice(participant.voiceId ?? "")?.id,
+      voiceDelivery: voiceDelivery(participant.voiceDelivery),
       assertiveness: participant.assertiveness,
       patience: participant.patience,
       interruptiveness: participant.interruptiveness,
@@ -58,6 +67,8 @@ export function serializeTalk(talk: TalkDocument): TalkResponse {
       modelOverride: isLlmModelId(talk.moderator?.modelOverride)
         ? talk.moderator.modelOverride
         : undefined,
+      voiceId: findStudioVoice(talk.moderator?.voiceId ?? "")?.id,
+      voiceDelivery: voiceDelivery(talk.moderator?.voiceDelivery),
       canInterrupt: talk.moderator?.canInterrupt ?? true,
       manageTime: talk.moderator?.manageTime ?? true,
       summarizeAtEnd: talk.moderator?.summarizeAtEnd ?? true,

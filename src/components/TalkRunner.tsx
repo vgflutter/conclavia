@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useTranslations } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/translations";
+import { AudienceDesk } from "@/components/AudienceDesk";
 import { getLlmModel } from "@/lib/llm-models";
 import {
   getTalkRunBlockCode,
@@ -14,6 +15,7 @@ import {
   type StudioStageHandle,
 } from "@/components/StudioStage";
 import type { TalkResponse } from "@/types/talk";
+import type { AudienceRoomResponse } from "@/types/audience";
 import type {
   TalkRunArcPhase,
   TalkRunConclusionKind,
@@ -44,6 +46,10 @@ interface RunApiResponse {
   run?: TalkRunResponse | null;
   error?: string;
   code?: string;
+}
+
+interface AudienceApiResponse {
+  audience?: AudienceRoomResponse;
 }
 
 function intentTranslationKey(intent: TalkRunIntent): TranslationKey {
@@ -138,7 +144,9 @@ export function TalkRunner({
   const [preparationReady, setPreparationReady] = useState(false);
   const [reviewingEditorial, setReviewingEditorial] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<"viewer" | "control">("viewer");
+  const [viewMode, setViewMode] = useState<"viewer" | "control">(
+    presentation === "broadcast" ? "viewer" : "control",
+  );
   const [humanContent, setHumanContent] = useState("");
   const [humanIntent, setHumanIntent] = useState<TalkRunIntent | "">("");
   const [humanTarget, setHumanTarget] = useState("");
@@ -148,12 +156,54 @@ export function TalkRunner({
   const [narratingMessage, setNarratingMessage] =
     useState<TalkRunMessageResponse | null>(null);
   const [startRequest, setStartRequest] = useState<"new" | "resume" | null>(null);
+  const [audience, setAudience] = useState<AudienceRoomResponse | null>(null);
   const stopRequested = useRef(false);
   const speechQueue = useRef<Promise<void>>(Promise.resolve());
   const activeRequest = useRef<AbortController | null>(null);
   const studioRef = useRef<StudioStageHandle | null>(null);
   const liveTalk = run?.talkSnapshot ?? talk;
   const blockCode = getTalkRunBlockCode(liveTalk);
+
+  useEffect(() => {
+    const runId = run?.id;
+    if (!runId) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    let currentRoom: AudienceRoomResponse | undefined;
+
+    const refresh = async () => {
+      try {
+        const shouldSync = presentation === "standard" && currentRoom?.connected;
+        const response = await fetch(
+          shouldSync
+            ? `/api/runs/${runId}/audience/sync`
+            : `/api/runs/${runId}/audience`,
+          shouldSync ? { method: "POST" } : undefined,
+        );
+        const payload = (await response.json()) as AudienceApiResponse;
+        if (!cancelled && response.ok && payload.audience) {
+          currentRoom = payload.audience;
+          setAudience(payload.audience);
+        }
+      } catch {
+        // The next refresh can recover from a temporary YouTube or network error.
+      }
+      if (cancelled) return;
+      const delay =
+        presentation === "broadcast"
+          ? 1_500
+          : currentRoom?.connected
+            ? currentRoom.pollingIntervalMillis
+            : 5_000;
+      timer = window.setTimeout(() => void refresh(), delay);
+    };
+
+    void refresh();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [presentation, run?.id]);
 
   useEffect(() => {
     if (run?.status !== "generating" || requestPending) return;
@@ -416,8 +466,9 @@ export function TalkRunner({
     speechQueue.current = Promise.resolve();
     setAutoRunning(true);
     let current: TalkRunResponse | undefined = startingRun;
-    const studioReady = await studioRef.current
-      .startLiveStudio()
+    const studioStartup = studioRef.current.startLiveStudio();
+    let nextTurn = generateNext(current, true);
+    const studioReady = await studioStartup
       .then(() => true)
       .catch((caught: unknown) => {
         stopRequested.current = true;
@@ -431,12 +482,15 @@ export function TalkRunner({
     try {
       if (!studioReady) return;
       while (current && current.status !== "completed" && !stopRequested.current) {
-        current = await generateNext(current, true);
+        current = await nextTurn;
         if (
           !current ||
           current.status === "failed" ||
           current.status === "waiting_for_human"
         ) break;
+        if (current.status !== "completed" && !stopRequested.current) {
+          nextTurn = generateNext(current, true);
+        }
       }
       await speechQueue.current;
     } finally {
@@ -457,18 +511,12 @@ export function TalkRunner({
       setError(t("runnerAudioError"));
       return;
     }
-    try {
-      await studioRef.current.startLiveStudio();
-    } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : t("runnerAudioError"),
-      );
-      return;
-    }
+    const studioStartup = studioRef.current.startLiveStudio();
     const created = await createRun();
     if (created) {
       await runAutomatically(created);
     } else {
+      await studioStartup.catch(() => undefined);
       await studioRef.current.stopLiveStudio();
     }
   }
@@ -595,11 +643,18 @@ export function TalkRunner({
                 presentation="broadcast"
                 broadcastAudioState={broadcastAudioState}
                 broadcastMessage={narratingMessage ?? undefined}
+                audienceOverlay={audience?.activeMessage}
                 runControlActive={autoRunning || requestPending}
                 onPauseRun={pauseAutomaticRun}
                 onBroadcastStateChange={handleBroadcastStateChange}
               />
-              <div className="absolute inset-0 z-[60] flex items-center justify-center bg-[radial-gradient(circle_at_center,rgba(4,16,30,.48),rgba(1,6,14,.88))] px-6 text-center text-white">
+              <div
+                className="absolute inset-0 z-[60] flex items-center justify-center bg-cover bg-center px-6 text-center text-white"
+                style={{
+                  backgroundImage:
+                    "radial-gradient(circle at center, rgba(4,16,30,.18), rgba(1,6,14,.68)), url('/studio/conclavia-broadcast-bumper-v1.webp')",
+                }}
+              >
                 <div className="max-w-3xl">
                   <p className="text-sm font-black uppercase tracking-[.3em] text-cyan-300">
                     CONCLAVIA · LIVE
@@ -636,6 +691,7 @@ export function TalkRunner({
             run={null}
             broadcastAudioState={broadcastAudioState}
             broadcastMessage={narratingMessage ?? undefined}
+            audienceOverlay={audience?.activeMessage}
             runControlActive={autoRunning || requestPending}
             onPauseRun={pauseAutomaticRun}
             onBroadcastStateChange={handleBroadcastStateChange}
@@ -703,13 +759,20 @@ export function TalkRunner({
               streamingContent={streamingContent}
               broadcastAudioState={broadcastAudioState}
               broadcastMessage={narratingMessage ?? undefined}
+              audienceOverlay={audience?.activeMessage}
               runControlActive={activelyBroadcasting}
               onPauseRun={pauseAutomaticRun}
               onBroadcastStateChange={handleBroadcastStateChange}
             />
 
             {!activelyBroadcasting && !completed && !waitingForHuman && (
-              <div className="absolute inset-0 z-[60] flex items-center justify-center bg-slate-950/60 px-6 text-center text-white backdrop-blur-[2px]">
+              <div
+                className="absolute inset-0 z-[60] flex items-center justify-center bg-cover bg-center px-6 text-center text-white"
+                style={{
+                  backgroundImage:
+                    "radial-gradient(circle at center, rgba(4,16,30,.22), rgba(1,6,14,.76)), url('/studio/conclavia-broadcast-bumper-v1.webp')",
+                }}
+              >
                 <div className="max-w-xl rounded-2xl border border-white/15 bg-[#07101d]/90 p-7 shadow-2xl">
                   <p className="text-xs font-black uppercase tracking-[.22em] text-cyan-300">
                     {run.status === "failed"
@@ -771,6 +834,7 @@ export function TalkRunner({
         streamingContent={streamingContent}
         broadcastAudioState={broadcastAudioState}
         broadcastMessage={narratingMessage ?? undefined}
+        audienceOverlay={audience?.activeMessage}
         runControlActive={
           autoRunning || requestPending || run.status === "generating"
         }
@@ -905,6 +969,16 @@ export function TalkRunner({
 
       {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>}
 
+      {viewMode === "control" && audience && (
+        <AudienceDesk
+          talk={liveTalk}
+          run={run}
+          audience={audience}
+          onAudienceChange={setAudience}
+          onRunChange={setRun}
+        />
+      )}
+
       {waitingForHuman && visiblePlan && (
         <section className="card border-amber-200 bg-amber-50/60 p-5 sm:p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-800">
@@ -916,6 +990,14 @@ export function TalkRunner({
           <p className="mt-2 text-sm leading-6 text-slate-600">
             {t("runnerHumanTurnHelp")}
           </p>
+          {visiblePlan.audienceCue && (
+            <blockquote className="mt-4 rounded-xl border border-red-100 bg-white px-4 py-3 text-sm leading-6 text-slate-700 shadow-sm">
+              <span className="block text-xs font-bold uppercase tracking-wide text-red-600">
+                YouTube · @{visiblePlan.audienceCue.authorName}
+              </span>
+              <span className="mt-1 block">“{visiblePlan.audienceCue.content}”</span>
+            </blockquote>
+          )}
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <div>
               <label htmlFor="human-intent" className="label">{t("runnerHumanIntent")}</label>
@@ -1088,6 +1170,14 @@ export function TalkRunner({
                       )}
                     </div>
                     {relationKey && <p className="mt-3 text-sm font-medium text-[#295c43]">{t(relationKey, { speaker: message.speakerName, target: message.targetSpeakerName ?? "" })}</p>}
+                    {message.audienceCue && (
+                      <blockquote className="mt-3 rounded-lg border border-red-100 bg-red-50/60 px-3 py-2 text-sm leading-6 text-slate-600">
+                        <span className="font-semibold text-red-700">
+                          YouTube · @{message.audienceCue.authorName}:
+                        </span>{" "}
+                        “{message.audienceCue.content}”
+                      </blockquote>
+                    )}
                     {viewMode === "control" && <div className="mt-3 flex flex-wrap gap-1.5">
                       <span className="rounded-full border border-[#c8dbce] bg-white px-2 py-1 text-[11px] font-semibold text-[#295c43]">{t(arcTranslationKey(message.arcPhase))}</span>
                       <span className="rounded-full bg-[#edf4ef] px-2 py-1 text-[11px] font-semibold text-[#295c43]">{t(intentTranslationKey(message.intent))}</span>

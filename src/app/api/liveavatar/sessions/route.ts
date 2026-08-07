@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { findStudioAvatar } from "@/lib/liveavatar-catalog";
+import {
+  findStudioAvatar,
+  findStudioVoice,
+} from "@/lib/liveavatar-catalog";
 import {
   isLiveAvatarProductionEnabled,
   LiveAvatarApiError,
@@ -15,6 +18,8 @@ interface SessionTokenResponse {
   session_token: string;
 }
 
+type LiveAvatarVideoQuality = "high" | "very_high";
+
 interface SessionRequest {
   avatarId?: unknown;
   seatIndex?: unknown;
@@ -22,6 +27,38 @@ interface SessionRequest {
   sex?: unknown;
   language?: unknown;
   pace?: unknown;
+  voiceId?: unknown;
+  voiceDelivery?: unknown;
+}
+
+type VoiceDelivery = "natural" | "energetic" | "authoritative";
+
+function normalizeDelivery(value: unknown): VoiceDelivery {
+  return value === "energetic" || value === "authoritative"
+    ? value
+    : "natural";
+}
+
+function voiceSettings(
+  delivery: VoiceDelivery,
+  pace: unknown,
+) {
+  const paceAdjustment = pace === "fast" ? 0.04 : pace === "deep" ? -0.03 : 0;
+  const profile = {
+    natural: { speed: 1.08, stability: 0.48, similarity: 0.78 },
+    energetic: { speed: 1.14, stability: 0.38, similarity: 0.76 },
+    authoritative: { speed: 1.04, stability: 0.58, similarity: 0.82 },
+  }[delivery];
+
+  return {
+    provider: "elevenLabs",
+    speed: Math.min(1.18, Math.max(0.95, profile.speed + paceAdjustment)),
+    stability: profile.stability,
+    similarity_boost: profile.similarity,
+    style: 0,
+    use_speaker_boost: false,
+    model: "eleven_flash_v2_5",
+  };
 }
 
 function customAvatarForRequest(
@@ -97,11 +134,22 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  const requestedVoice =
+    typeof body.voiceId === "string" ? findStudioVoice(body.voiceId) : undefined;
+  if (body.voiceId && (!requestedVoice || requestedVoice.sex !== sex)) {
+    return NextResponse.json(
+      { error: "Voice does not match participant sex" },
+      { status: 400 },
+    );
+  }
+  const selectedVoiceId = requestedVoice?.id ?? requestedAvatar.voiceId;
   let avatar: { id: string; voiceId: string } = requestedAvatar;
   try {
     avatar =
-      customAvatarForRequest(body, sex, requestedAvatar.voiceId) ??
-      requestedAvatar;
+      customAvatarForRequest(body, sex, selectedVoiceId) ?? {
+        id: requestedAvatar.id,
+        voiceId: selectedVoiceId,
+      };
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Invalid custom avatar" },
@@ -110,47 +158,58 @@ export async function POST(request: Request) {
   }
   const maxSessionDuration = liveAvatarMaxSessionSeconds();
   const language = normalizeLanguage(body.language);
-  // ElevenLabs currently caps LiveAvatar voice speed at 1.2.
-  const speed = 1.2;
-  const voiceModel =
-    language === "it" ? "eleven_multilingual_v2" : "eleven_flash_v2_5";
+  const delivery = normalizeDelivery(body.voiceDelivery);
+  const configuredVideoQuality =
+    process.env.LIVEAVATAR_VIDEO_QUALITY?.trim().toLowerCase();
+  const allowQualityFallback = configuredVideoQuality !== "very_high";
+  let videoQuality: LiveAvatarVideoQuality =
+    configuredVideoQuality === "high" ? "high" : "very_high";
+
+  const requestSession = (quality: LiveAvatarVideoQuality) =>
+    liveAvatarRequest<SessionTokenResponse>("/v1/sessions/token", {
+      method: "POST",
+      body: JSON.stringify({
+        mode: "FULL",
+        avatar_id: avatar.id,
+        avatar_persona: {
+          voice_id: avatar.voiceId,
+          language,
+          voice_settings: voiceSettings(delivery, body.pace),
+        },
+        video_settings: {
+          quality,
+          encoding: "H264",
+        },
+        is_sandbox: false,
+        max_session_duration: maxSessionDuration,
+      }),
+    });
 
   try {
-    const session = await liveAvatarRequest<SessionTokenResponse>(
-      "/v1/sessions/token",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          mode: "FULL",
-          avatar_id: avatar.id,
-          avatar_persona: {
-            voice_id: avatar.voiceId,
-            language,
-            voice_settings: {
-              provider: "elevenLabs",
-              speed,
-              stability: language === "it" ? 0.62 : 0.54,
-              similarity_boost: 0.82,
-              style: 0.12,
-              use_speaker_boost: true,
-              model: voiceModel,
-              apply_language_text_normalization: true,
-            },
-          },
-          video_settings: {
-            quality: "very_high",
-            encoding: "H264",
-          },
-          is_sandbox: false,
-          max_session_duration: maxSessionDuration,
-        }),
-      },
-    );
+    let session: SessionTokenResponse;
+    try {
+      session = await requestSession(videoQuality);
+    } catch (error) {
+      const planBlocks1080 =
+        error instanceof LiveAvatarApiError &&
+        error.status === 403 &&
+        /1080p/iu.test(error.message);
+      if (
+        videoQuality !== "very_high" ||
+        !allowQualityFallback ||
+        !planBlocks1080
+      ) {
+        throw error;
+      }
+      videoQuality = "high";
+      session = await requestSession(videoQuality);
+    }
 
     return NextResponse.json({
       sessionId: session.session_id,
       sessionToken: session.session_token,
       maxSessionDuration,
+      videoQuality,
     });
   } catch (error) {
     const status = error instanceof LiveAvatarApiError ? error.status : 502;

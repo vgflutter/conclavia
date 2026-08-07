@@ -12,13 +12,18 @@ import type { LiveAvatarSession } from "@heygen/liveavatar-web-sdk";
 
 import { useTranslations } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/translations";
-import { getStudioAvatar } from "@/lib/liveavatar-catalog";
+import {
+  getStudioAvatar,
+  getStudioModeratorAvatar,
+  getStudioVoice,
+} from "@/lib/liveavatar-catalog";
 import {
   startChromaKey,
   type ChromaKeyPipeline,
 } from "@/lib/chroma-key";
 import { getStudioTheme } from "@/lib/studio-themes";
-import type { TalkResponse } from "@/types/talk";
+import type { AudienceMessageResponse } from "@/types/audience";
+import type { TalkResponse, VoiceDelivery } from "@/types/talk";
 import type {
   TalkRunArcPhase,
   TalkRunIntent,
@@ -33,12 +38,17 @@ type SeatLiveState = "offline" | "connecting" | "ready" | "speaking" | "error";
 type AudioState = "idle" | "waiting" | "playing" | "blocked";
 export type BroadcastAudioState = "idle" | "loading" | "speaking" | "error";
 type DirectorCueKind = "speaker" | "reaction" | "context";
+type CameraFraming = "loose" | "medium" | "tight";
+type CameraMotion = "locked" | "push_in" | "drift_left" | "drift_right";
 
 interface DirectorCue {
   shot: Exclude<ShotMode, "auto">;
   focusIndex?: number;
   companionIndex?: number;
   kind: DirectorCueKind;
+  framing?: CameraFraming;
+  motion?: CameraMotion;
+  motionDurationMs?: number;
 }
 
 export interface StudioStageHandle {
@@ -61,6 +71,7 @@ interface StudioStageProps {
   streamingContent?: string;
   broadcastAudioState?: BroadcastAudioState;
   broadcastMessage?: TalkRunMessageResponse;
+  audienceOverlay?: AudienceMessageResponse;
   runControlActive?: boolean;
   onPauseRun?: () => void;
   onBroadcastStateChange?: (
@@ -89,6 +100,8 @@ interface SpeakerTarget {
   participantIndex?: number;
   sex: "female" | "male";
   avatarId: string;
+  voiceId: string;
+  voiceDelivery: VoiceDelivery;
   label: string;
 }
 
@@ -98,10 +111,12 @@ interface ManagedSession {
   participantIndex?: number;
   session: LiveAvatarSession;
   video: HTMLVideoElement;
+  target: SpeakerTarget;
   expiresAt: number;
   currentMessage?: TalkRunMessageResponse;
   finishSpeech?: (error?: Error) => void;
   speechTimer?: number;
+  commandSentAt?: number;
 }
 
 interface LiveKitCommandTransport {
@@ -116,11 +131,28 @@ interface LiveKitCommandTransport {
   };
 }
 
+interface StudioAudioGraph {
+  context: AudioContext;
+  limiter: DynamicsCompressorNode;
+  gain: GainNode;
+}
+
+interface StudioAudioChannel {
+  source: MediaStreamAudioSourceNode;
+  nodes: AudioNode[];
+}
+
+interface StudioTimingMetrics {
+  startupMs?: number;
+  handoffMs?: number;
+  samples: number;
+}
+
 // Seat centres in the shared studio backgrounds are approximately
 // 17%, 33%, 50%, 67%, and 84% of the stage width.
-const BASE_POSITIONS = [5, 21, 38, 55, 72];
+const BASE_POSITIONS = [6, 22, 39, 56, 73];
 const SEAT_CENTERS = [17, 33, 50, 67, 84];
-const CLOSE_SHOT_POSITIONS = [27, 38, 50, 62, 73];
+const CLOSE_SHOT_POSITIONS = [32, 41, 50, 59, 68];
 const SEAT_ACCENTS = ["#22d3ee", "#a78bfa", "#fbbf24", "#fb7185", "#34d399"];
 const LIVEAVATAR_FULL_CREDITS_PER_MINUTE = 2;
 const MAX_CONCURRENT_LIVEAVATARS = 5;
@@ -217,6 +249,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       streamingContent = "",
       broadcastAudioState = "idle",
       broadcastMessage,
+      audienceOverlay,
       runControlActive = false,
       onPauseRun,
       onBroadcastStateChange,
@@ -242,6 +275,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const [moderatorVideoReady, setModeratorVideoReady] = useState(false);
     const [activeLiveParticipant, setActiveLiveParticipant] = useState<number>();
     const [directorCue, setDirectorCue] = useState<DirectorCue>();
+    const [cameraCutSerial, setCameraCutSerial] = useState(0);
     const [phaseStinger, setPhaseStinger] = useState<TalkRunArcPhase>();
     const [captionProgress, setCaptionProgress] = useState({
       sequence: -1,
@@ -249,6 +283,9 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     });
     const [cameraSeat, setCameraSeat] = useState<number | null>(null);
     const [cameraError, setCameraError] = useState<string | null>(null);
+    const [timingMetrics, setTimingMetrics] = useState<StudioTimingMetrics>({
+      samples: 0,
+    });
     const sessionsRef = useRef<Map<string, ManagedSession>>(new Map());
     const sessionStartPromisesRef = useRef<Map<string, Promise<void>>>(
       new Map(),
@@ -267,10 +304,16 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const moderatorChromaCleanupRef = useRef<ChromaKeyPipeline | null>(null);
     const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
     const cameraStreamRef = useRef<MediaStream | null>(null);
+    const audioGraphRef = useRef<StudioAudioGraph | null>(null);
+    const audioChannelRefs = useRef<Map<HTMLVideoElement, StudioAudioChannel>>(
+      new Map(),
+    );
+    const lastSpeechEndedAtRef = useRef<number | undefined>(undefined);
     const studioLockReleaseRef = useRef<(() => void) | null>(null);
     const previousArcPhaseRef = useRef<TalkRunArcPhase | undefined>(undefined);
     const directorTimersRef = useRef<number[]>([]);
     const seatVideoReadyRef = useRef(seatVideoReady);
+    const cameraRigRef = useRef<HTMLDivElement | null>(null);
 
     const latestMessage = run?.messages.at(-1);
     const showBroadcastContext =
@@ -283,6 +326,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         : undefined;
     const onAirMessage =
       broadcastAudioState === "speaking" ? broadcastMessage : undefined;
+    const audienceCard = onAirMessage?.audienceCue ?? audienceOverlay;
     const currentTurn = activePlan ?? run?.activeTurn;
     const runCompleted = run?.status === "completed" && !runControlActive;
     const visibleSpeakerType =
@@ -361,6 +405,8 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       currentIntent === "opening" ||
       currentIntent === "closing" ||
       currentIntent === "moderation";
+    const studioTheme = getStudioTheme(talk.settings.studioTheme);
+    const usesCreatorDirection = studioTheme.editorialTone === "creator";
     const effectiveShot: Exclude<ShotMode, "auto"> =
       shotMode !== "auto"
         ? shotMode
@@ -394,12 +440,16 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     );
     const cameraZoom =
       effectiveShot === "close"
-        ? 1.58
+        ? directorCue?.framing === "tight"
+          ? 1.9
+          : directorCue?.framing === "loose"
+            ? 1.52
+            : 1.68
         : effectiveShot === "duo"
           ? duoSpan <= 18
-            ? 1.26
+            ? 1.3
             : duoSpan <= 35
-              ? 1.08
+              ? 1.14
               : 1
           : 1;
     const cameraAnchor =
@@ -414,7 +464,54 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         : effectiveShot === "duo"
           ? duoDestination
           : 50;
-    const cameraTransform = `translateX(${cameraDestination - cameraAnchor}%) scale(${cameraZoom})`;
+    const cameraVerticalOffset =
+      effectiveShot === "close" ? -7.2 : effectiveShot === "duo" ? -3.5 : 0;
+    const cameraVerticalAnchor =
+      effectiveShot === "close" ? 34 : effectiveShot === "duo" ? 39 : 45;
+    const cameraTransform = `translate3d(${cameraDestination - cameraAnchor}%, ${cameraVerticalOffset}%, 0) scale(${cameraZoom})`;
+    const cameraMotion: CameraMotion =
+      shotMode === "auto" ? directorCue?.motion ?? "locked" : "locked";
+    const cameraMotionDuration =
+      directorCue?.motionDurationMs ?? (effectiveShot === "close" ? 5_200 : 4_400);
+
+    useEffect(() => {
+      const rig = cameraRigRef.current;
+      if (!rig) return;
+      rig.getAnimations().forEach((animation) => animation.cancel());
+      rig.style.transform = cameraTransform;
+
+      if (
+        cameraMotion === "locked" ||
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+        typeof rig.animate !== "function"
+      ) {
+        return;
+      }
+
+      const destination =
+        cameraMotion === "push_in"
+          ? `${cameraTransform} translate3d(0, -.35%, 0) scale(1.035)`
+          : cameraMotion === "drift_left"
+            ? `${cameraTransform} translate3d(-.75%, -.15%, 0) scale(1.018)`
+            : `${cameraTransform} translate3d(.75%, -.15%, 0) scale(1.018)`;
+      const animation = rig.animate(
+        [
+          { transform: cameraTransform },
+          { transform: destination },
+        ],
+        {
+          duration: cameraMotionDuration,
+          easing: "cubic-bezier(.18,.72,.22,1)",
+          fill: "both",
+        },
+      );
+      return () => animation.cancel();
+    }, [
+      cameraCutSerial,
+      cameraMotion,
+      cameraMotionDuration,
+      cameraTransform,
+    ]);
 
     useEffect(() => {
       seatVideoReadyRef.current = seatVideoReady;
@@ -463,63 +560,166 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       directorTimersRef.current = [];
     }
 
+    function takeCamera(cue: DirectorCue) {
+      setDirectorCue(cue);
+      setCameraCutSerial((current) => current + 1);
+    }
+
     function scheduleDirectorCue(delayMs: number, cue: DirectorCue) {
-      const timer = window.setTimeout(() => setDirectorCue(cue), delayMs);
+      const timer = window.setTimeout(() => takeCamera(cue), delayMs);
       directorTimersRef.current.push(timer);
     }
 
     function directSpeakingMessage(message: TalkRunMessageResponse) {
       clearDirectorTimers();
       const speakerIndex = message.participantIndex;
+      const durationMs = Math.max(
+        5_200,
+        message.estimatedAirtimeSeconds * 840,
+      );
       if (message.speakerType === "moderator" || speakerIndex === undefined) {
-        setDirectorCue({ shot: "close", kind: "speaker" });
+        const hostCue: DirectorCue = {
+          shot: "close",
+          kind: "speaker",
+          framing: message.intent === "question" ? "tight" : "medium",
+          motion: usesCreatorDirection ? "push_in" : "locked",
+          motionDurationMs: Math.min(
+            usesCreatorDirection ? 6_000 : 8_000,
+            durationMs,
+          ),
+        };
+        if (message.intent === "opening") {
+          takeCamera({
+            shot: "wide",
+            kind: "context",
+            motion: usesCreatorDirection ? "push_in" : "locked",
+          });
+          scheduleDirectorCue(usesCreatorDirection ? 1_350 : 1_800, hostCue);
+        } else {
+          takeCamera(hostCue);
+          if (message.intent === "closing" && durationMs >= 7_500) {
+            scheduleDirectorCue(durationMs - 2_800, {
+              shot: "wide",
+              kind: "context",
+              motion: usesCreatorDirection ? "push_in" : "locked",
+              motionDurationMs: usesCreatorDirection ? 2_600 : 3_400,
+            });
+          }
+        }
         return;
       }
 
+      const pattern = message.sequence % 3;
       const speakerCue: DirectorCue = {
         shot: "close",
         focusIndex: speakerIndex,
         kind: "speaker",
+        framing:
+          usesCreatorDirection && pattern === 1 ? "loose" : "medium",
+        motion: usesCreatorDirection
+          ? pattern === 0
+            ? "push_in"
+            : pattern === 1
+              ? "drift_left"
+              : "drift_right"
+          : pattern === 0
+            ? "push_in"
+            : "locked",
+        motionDurationMs: Math.min(
+          usesCreatorDirection ? 6_200 : 8_200,
+          durationMs,
+        ),
       };
-      setDirectorCue(speakerCue);
-      const durationMs = Math.max(
-        6_000,
-        message.estimatedAirtimeSeconds * 840,
-      );
+      takeCamera(speakerCue);
       const targetIndex = message.targetParticipantIndex;
       const targetIsReady =
         targetIndex !== undefined && seatVideoReadyRef.current[targetIndex];
       const targetIsAdjacent =
         targetIndex !== undefined && Math.abs(speakerIndex - targetIndex) === 1;
 
-      let lastCutEndsAt = 0;
-      if (targetIsReady && targetIsAdjacent && durationMs >= 9_000) {
-        const duoAt = Math.min(5_200, Math.max(2_800, durationMs * 0.27));
-        scheduleDirectorCue(duoAt, {
-          shot: "duo",
-          focusIndex: speakerIndex,
-          companionIndex: targetIndex,
-          kind: "context",
+      const minimumPunchDuration = usesCreatorDirection ? 7_800 : 11_500;
+      if (durationMs < minimumPunchDuration) return;
+
+      const punchAt = usesCreatorDirection
+        ? Math.min(5_400, Math.max(3_200, durationMs * 0.34))
+        : Math.min(8_000, Math.max(5_000, durationMs * 0.48));
+      const punchCue: DirectorCue = {
+        ...speakerCue,
+        framing: "tight",
+        motion: "push_in",
+        motionDurationMs: Math.max(2_800, durationMs - punchAt),
+      };
+      scheduleDirectorCue(punchAt, punchCue);
+
+      const minimumInsertDuration = usesCreatorDirection ? 11_500 : 15_000;
+      if (targetIsReady && durationMs >= minimumInsertDuration) {
+        const insertAt = Math.min(
+          durationMs - (usesCreatorDirection ? 3_200 : 4_000),
+          Math.max(
+            punchAt + (usesCreatorDirection ? 3_200 : 4_200),
+            durationMs * (usesCreatorDirection ? 0.62 : 0.68),
+          ),
+        );
+        const insertDuration = targetIsAdjacent
+          ? usesCreatorDirection
+            ? 2_750
+            : 3_400
+          : usesCreatorDirection
+            ? 2_150
+            : 2_800;
+        scheduleDirectorCue(insertAt, {
+          shot: targetIsAdjacent ? "duo" : "close",
+          focusIndex: targetIsAdjacent ? speakerIndex : targetIndex,
+          companionIndex: targetIsAdjacent ? targetIndex : undefined,
+          kind: targetIsAdjacent ? "context" : "reaction",
+          framing: targetIsAdjacent ? "medium" : "loose",
+          motion: usesCreatorDirection
+            ? targetIsAdjacent
+              ? "push_in"
+              : "drift_right"
+            : "locked",
+          motionDurationMs: insertDuration,
         });
-        scheduleDirectorCue(duoAt + 1_650, speakerCue);
-        lastCutEndsAt = duoAt + 1_650;
+        scheduleDirectorCue(insertAt + insertDuration, {
+          ...speakerCue,
+          framing: "medium",
+          motion: usesCreatorDirection
+            ? pattern === 2
+              ? "drift_left"
+              : "push_in"
+            : "locked",
+          motionDurationMs: Math.max(2_500, durationMs - insertAt - insertDuration),
+        });
+      } else if (durationMs >= (usesCreatorDirection ? 14_500 : 20_000)) {
+        const contextDuration = usesCreatorDirection ? 2_350 : 3_200;
+        const contextAt = Math.min(
+          durationMs - (usesCreatorDirection ? 3_200 : 4_200),
+          durationMs * (usesCreatorDirection ? 0.67 : 0.72),
+        );
+        scheduleDirectorCue(contextAt, {
+          shot: "wide",
+          kind: "context",
+          motion: usesCreatorDirection ? "push_in" : "locked",
+          motionDurationMs: contextDuration,
+        });
+        scheduleDirectorCue(contextAt + contextDuration, {
+          ...speakerCue,
+          framing: "tight",
+          motion: usesCreatorDirection ? "push_in" : "locked",
+          motionDurationMs: Math.max(
+            2_400,
+            durationMs - contextAt - contextDuration,
+          ),
+        });
       }
 
-      if (targetIsReady && durationMs >= 13_000) {
-        const reactionAt = Math.max(
-          lastCutEndsAt + 2_200,
-          Math.min(durationMs - 2_600, durationMs * 0.62),
-        );
-        scheduleDirectorCue(reactionAt, {
-          shot: "close",
-          focusIndex: targetIndex,
-          kind: "reaction",
+      if (durationMs >= (usesCreatorDirection ? 22_000 : 28_000)) {
+        scheduleDirectorCue(durationMs - 4_800, {
+          ...speakerCue,
+          framing: "tight",
+          motion: usesCreatorDirection ? "push_in" : "locked",
+          motionDurationMs: 4_600,
         });
-        scheduleDirectorCue(reactionAt + 1_250, speakerCue);
-      } else if (!targetIsReady && durationMs >= 18_000) {
-        const contextAt = Math.min(durationMs - 2_400, durationMs * 0.58);
-        scheduleDirectorCue(contextAt, { shot: "wide", kind: "context" });
-        scheduleDirectorCue(contextAt + 1_100, speakerCue);
       }
     }
 
@@ -561,25 +761,44 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       const participants = talk.participants.flatMap((participant, index) => {
         if (participant.kind !== "ai") return [];
         const avatar = studioAvatarForSeat(index);
+        const voice =
+          participant.voiceId ??
+          getStudioVoice(
+            talk.participants
+              .slice(0, index)
+              .filter(
+                (candidate, previousIndex) =>
+                  candidate.kind === "ai" &&
+                  participantSex(previousIndex) === participant.sex,
+              ).length,
+            participant.sex,
+            talk.language,
+          ).id;
         return [
           {
             key: `participant:${index}`,
             participantIndex: index,
             sex: participant.sex,
             avatarId: avatar.id,
+            voiceId: voice,
+            voiceDelivery: participant.voiceDelivery ?? "natural",
             label: participant.name,
           } satisfies SpeakerTarget,
         ];
       });
 
       if (talk.moderator.kind !== "ai") return participants;
-      const moderatorAvatar = getStudioAvatar(0, "male");
+      const moderatorAvatar = getStudioModeratorAvatar();
+      const moderatorVoice =
+        talk.moderator.voiceId ?? getStudioVoice(0, "male", talk.language).id;
       return [
         ...participants,
         {
           key: "moderator",
           sex: "male",
           avatarId: moderatorAvatar.id,
+          voiceId: moderatorVoice,
+          voiceDelivery: talk.moderator.voiceDelivery ?? "natural",
           label: talk.moderator.name || t("moderation"),
         },
       ];
@@ -635,32 +854,129 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         : avatarVideoRefs.current[target.participantIndex] ?? null;
     }
 
+    function studioAudioGraph(): StudioAudioGraph {
+      const existing = audioGraphRef.current;
+      if (existing && existing.context.state !== "closed") return existing;
+
+      const context = new AudioContext({
+        latencyHint: "interactive",
+        sampleRate: 48_000,
+      });
+      const limiter = context.createDynamicsCompressor();
+      limiter.threshold.value = -4;
+      limiter.knee.value = 2;
+      limiter.ratio.value = 12;
+      limiter.attack.value = 0.002;
+      limiter.release.value = 0.12;
+      const gain = context.createGain();
+      gain.gain.value = volume;
+      limiter.connect(gain).connect(context.destination);
+      const graph = { context, limiter, gain };
+      audioGraphRef.current = graph;
+      return graph;
+    }
+
+    function connectStudioAudio(
+      video: HTMLVideoElement,
+      target: SpeakerTarget,
+    ): boolean {
+      const stream = video.srcObject;
+      if (!(stream instanceof MediaStream) || stream.getAudioTracks().length === 0) {
+        return false;
+      }
+      if (!audioChannelRefs.current.has(video)) {
+        const graph = studioAudioGraph();
+        const source = graph.context.createMediaStreamSource(stream);
+        const highPass = graph.context.createBiquadFilter();
+        highPass.type = "highpass";
+        highPass.frequency.value = target.sex === "female" ? 88 : 72;
+        highPass.Q.value = 0.7;
+        const lowMid = graph.context.createBiquadFilter();
+        lowMid.type = "peaking";
+        lowMid.frequency.value = target.sex === "female" ? 310 : 250;
+        lowMid.Q.value = 0.9;
+        lowMid.gain.value = -1.8;
+        const presence = graph.context.createBiquadFilter();
+        presence.type = "peaking";
+        presence.frequency.value = target.sex === "female" ? 3_400 : 3_000;
+        presence.Q.value = 0.8;
+        presence.gain.value = target.voiceDelivery === "energetic" ? 0.7 : 1.2;
+        const compressor = graph.context.createDynamicsCompressor();
+        compressor.threshold.value = -22;
+        compressor.knee.value = 8;
+        compressor.ratio.value =
+          target.voiceDelivery === "energetic" ? 3.2 : 2.6;
+        compressor.attack.value = 0.008;
+        compressor.release.value = 0.14;
+        const channelGain = graph.context.createGain();
+        channelGain.gain.value =
+          target.voiceDelivery === "energetic"
+            ? 0.94
+            : target.voiceDelivery === "authoritative"
+              ? 1.03
+              : 1;
+        source
+          .connect(highPass)
+          .connect(lowMid)
+          .connect(presence)
+          .connect(compressor)
+          .connect(channelGain)
+          .connect(graph.limiter);
+        audioChannelRefs.current.set(video, {
+          source,
+          nodes: [highPass, lowMid, presence, compressor, channelGain],
+        });
+      }
+      video.muted = true;
+      video.volume = 0;
+      return stream
+        .getAudioTracks()
+        .some((track) => track.enabled && track.readyState === "live");
+    }
+
+    function disconnectStudioAudio(video: HTMLVideoElement) {
+      const channel = audioChannelRefs.current.get(video);
+      channel?.source.disconnect();
+      for (const node of channel?.nodes ?? []) node.disconnect();
+      audioChannelRefs.current.delete(video);
+    }
+
+    function releaseStudioAudio() {
+      for (const channel of audioChannelRefs.current.values()) {
+        channel.source.disconnect();
+        for (const node of channel.nodes) node.disconnect();
+      }
+      audioChannelRefs.current.clear();
+      const context = audioGraphRef.current?.context;
+      audioGraphRef.current = null;
+      if (context && context.state !== "closed") void context.close();
+    }
+
     async function activateStudioAudio(): Promise<boolean> {
-      const videos = Array.from(sessionsRef.current.values()).map(
-        (managed) => managed.video,
-      );
-      if (videos.length === 0) {
-        setAudioState("idle");
-        return true;
+      const graph = studioAudioGraph();
+      try {
+        if (graph.context.state === "suspended") await graph.context.resume();
+      } catch {
+        setAudioState("blocked");
+        return false;
+      }
+      const sessions = Array.from(sessionsRef.current.values());
+      if (sessions.length === 0) {
+        const unlocked = graph.context.state === "running";
+        setAudioState(unlocked ? "waiting" : "blocked");
+        return unlocked;
       }
 
       let blocked = false;
       let liveAudioTracks = 0;
       await Promise.all(
-        videos.map(async (video) => {
-          video.muted = false;
-          video.volume = volume;
+        sessions.map(async (managed) => {
+          const video = managed.video;
+          video.muted = true;
+          video.volume = 0;
           try {
             await video.play();
-            const stream = video.srcObject;
-            if (
-              stream instanceof MediaStream &&
-              stream
-                .getAudioTracks()
-                .some((track) => track.enabled && track.readyState === "live")
-            ) {
-              liveAudioTracks += 1;
-            }
+            if (connectStudioAudio(video, managed.target)) liveAudioTracks += 1;
           } catch {
             blocked = true;
           }
@@ -670,8 +986,14 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         setAudioState("idle");
         return true;
       }
-      setAudioState(blocked ? "blocked" : liveAudioTracks > 0 ? "playing" : "waiting");
-      return !blocked;
+      setAudioState(
+        blocked || graph.context.state !== "running"
+          ? "blocked"
+          : liveAudioTracks > 0
+            ? "playing"
+            : "waiting",
+      );
+      return !blocked && graph.context.state === "running";
     }
 
     async function makeAvatarSpeak(
@@ -744,14 +1066,17 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       moderatorChromaCleanupRef.current = null;
       for (const video of avatarVideoRefs.current) {
         if (!video) continue;
+        disconnectStudioAudio(video);
         video.pause();
         video.srcObject = null;
       }
       const moderatorVideo = moderatorVideoRef.current;
       if (moderatorVideo) {
+        disconnectStudioAudio(moderatorVideo);
         moderatorVideo.pause();
         moderatorVideo.srcObject = null;
       }
+      releaseStudioAudio();
     }
 
     async function retireManagedSession(managed: ManagedSession) {
@@ -773,6 +1098,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         setModeratorVideoReady(false);
         setModeratorLiveState("connecting");
       }
+      disconnectStudioAudio(managed.video);
       await Promise.allSettled([
         fetch(`/api/liveavatar/sessions/${managed.sessionId}`, {
           method: "DELETE",
@@ -848,6 +1174,8 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           avatarId: target.avatarId,
+          voiceId: target.voiceId,
+          voiceDelivery: target.voiceDelivery,
           seatIndex: target.participantIndex,
           speakerType:
             target.participantIndex === undefined ? "moderator" : "participant",
@@ -870,6 +1198,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         participantIndex: target.participantIndex,
         session,
         video,
+        target,
         expiresAt:
           Date.now() +
           (payload.maxSessionDuration ?? status?.maxSessionSeconds ?? 300) * 1_000,
@@ -883,9 +1212,9 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         resolveStreamReady = resolve;
       });
       session.on(sdk.SessionEvent.SESSION_STREAM_READY, () => {
+        video.muted = true;
+        video.volume = 0;
         session.attach(video);
-        video.muted = false;
-        video.volume = volume;
         streamReady = true;
         resolveStreamReady?.();
         void activateStudioAudio();
@@ -954,6 +1283,19 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         }
       });
       session.on(sdk.AgentEventsEnum.AVATAR_SPEAK_STARTED, () => {
+        const startedAt = performance.now();
+        if (managed.commandSentAt !== undefined) {
+          const startupMs = Math.max(0, startedAt - managed.commandSentAt);
+          const handoffMs =
+            lastSpeechEndedAtRef.current === undefined
+              ? undefined
+              : Math.max(0, startedAt - lastSpeechEndedAtRef.current);
+          setTimingMetrics((current) => ({
+            startupMs,
+            handoffMs,
+            samples: current.samples + 1,
+          }));
+        }
         if (managed.currentMessage) directSpeakingMessage(managed.currentMessage);
         setStudioState("speaking");
         if (target.participantIndex !== undefined) {
@@ -966,6 +1308,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         void activateStudioAudio();
       });
       session.on(sdk.AgentEventsEnum.AVATAR_SPEAK_ENDED, () => {
+        lastSpeechEndedAtRef.current = performance.now();
         if (target.participantIndex !== undefined) {
           setSeatState(target.participantIndex, "ready");
         } else {
@@ -978,6 +1321,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         if (sessionsRef.current.get(target.key) !== managed) return;
         const interruptedSpeech = Boolean(managed.currentMessage);
         sessionsRef.current.delete(target.key);
+        disconnectStudioAudio(managed.video);
         if (stoppingRef.current) return;
         if (target.participantIndex !== undefined) {
           setSeatState(
@@ -1064,11 +1408,16 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     }
 
     async function startLiveStudio(): Promise<void> {
+      // Called synchronously from the operator's click so the AudioContext keeps
+      // that user activation while the five remote sessions connect.
+      void activateStudioAudio();
       if (studioState === "ready" || studioState === "speaking") return;
       if (startPromiseRef.current) return startPromiseRef.current;
 
       const startPromise = (async () => {
         setStudioError(null);
+        setTimingMetrics({ samples: 0 });
+        lastSpeechEndedAtRef.current = undefined;
         setStudioState("starting");
         setAudioState("idle");
         await acquireStudioLock();
@@ -1166,23 +1515,43 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           reactionTarget !== message.participantIndex &&
           seatVideoReadyRef.current[reactionTarget];
         if (canCutToReaction) {
-          setDirectorCue({
+          takeCamera({
             shot: "close",
             focusIndex: reactionTarget,
             kind: "reaction",
+            framing: "loose",
+            motion: usesCreatorDirection ? "drift_right" : "locked",
+            motionDurationMs: usesCreatorDirection ? 1_500 : 2_000,
           });
-          scheduleDirectorCue(1_500, { shot: "wide", kind: "context" });
+          scheduleDirectorCue(usesCreatorDirection ? 1_500 : 2_000, {
+            shot: "wide",
+            kind: "context",
+            motion: usesCreatorDirection ? "push_in" : "locked",
+            motionDurationMs: usesCreatorDirection ? 2_200 : 3_000,
+          });
         } else {
-          setDirectorCue({ shot: "wide", kind: "context" });
+          takeCamera({
+            shot: "wide",
+            kind: "context",
+            motion: usesCreatorDirection ? "push_in" : "locked",
+            motionDurationMs: usesCreatorDirection ? 2_200 : 3_000,
+          });
         }
         setActiveLiveParticipant(message.participantIndex);
       } else {
-        setDirectorCue({ shot: "close", kind: "speaker" });
+        takeCamera({
+          shot: "close",
+          kind: "speaker",
+          framing: "medium",
+          motion: usesCreatorDirection ? "push_in" : "locked",
+          motionDurationMs: usesCreatorDirection ? 3_600 : 4_800,
+        });
       }
-      managed.video.muted = false;
-      managed.video.volume = volume;
+      managed.video.muted = true;
+      managed.video.volume = 0;
       try {
         await managed.video.play();
+        connectStudioAudio(managed.video, managed.target);
       } catch {
         setAudioState("blocked");
       }
@@ -1216,6 +1585,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           () => finish(new Error(t("studioSpeechTimeout"))),
           Math.max(30_000, Math.min(120_000, wordCount * 1_100)),
         );
+        managed.commandSentAt = performance.now();
         void makeAvatarSpeak(managed.session, message.content).catch(() => {
           finish(new Error(t("studioSpeechError")));
         });
@@ -1278,7 +1648,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       const focusIndex = activeParticipantIndex;
       const baseLayout = {
         left: `${BASE_POSITIONS[index]}%`,
-        width: "24%",
+        width: "22%",
       };
       if (moderatorOnCamera) {
         return {
@@ -1330,15 +1700,18 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
 
       const isFocused = focusIndex === index;
       const isTarget = targetParticipantIndex === index;
+      const distanceFromCenter = Math.abs(index - 2);
+      const depthScale = distanceFromCenter === 2 ? 0.9 : distanceFromCenter === 1 ? 0.96 : 1;
+      const depthOffset = distanceFromCenter === 2 ? 2.8 : distanceFromCenter === 1 ? 1.1 : -0.6;
       return {
         ...baseLayout,
         opacity: isFocused ? 1 : isTarget ? 0.96 : 0.86,
         transform: isFocused
-          ? "translateY(-2%) scale(1.055)"
+          ? `translateY(${depthOffset - 1.8}%) scale(${depthScale + 0.055})`
           : isTarget
-            ? "translateY(-.75%) scale(1.015)"
-            : "scale(.98)",
-        zIndex: isFocused ? 24 : isTarget ? 18 : 10,
+            ? `translateY(${depthOffset - 0.7}%) scale(${depthScale + 0.025})`
+            : `translateY(${depthOffset}%) scale(${depthScale})`,
+        zIndex: isFocused ? 24 : isTarget ? 19 : 16 - distanceFromCenter,
       };
     }
 
@@ -1430,13 +1803,16 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         directorTimersRef.current = [];
         for (const video of avatarVideos) {
           if (!video) continue;
+          disconnectStudioAudio(video);
           video.pause();
           video.srcObject = null;
         }
         if (moderatorVideo) {
+          disconnectStudioAudio(moderatorVideo);
           moderatorVideo.pause();
           moderatorVideo.srcObject = null;
         }
+        releaseStudioAudio();
         cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
         releaseStudioLock();
       };
@@ -1476,8 +1852,10 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             : studioState === "error"
               ? "studioError"
               : "studioIdle";
-    const studioTheme = getStudioTheme(talk.settings.studioTheme);
-    const moderatorAvatar = getStudioAvatar(0, "male");
+    const moderatorAvatar = getStudioModeratorAvatar();
+    const themeAvatarScale = studioTheme.id === "after_hours" ? 1.12 : 1;
+    const moderatorMediaTransform = `translate(${moderatorAvatar.visual.offsetXPercent}%, ${moderatorAvatar.visual.offsetYPercent}%) scale(${moderatorAvatar.visual.scale * themeAvatarScale})`;
+    const moderatorMediaFilter = `brightness(${moderatorAvatar.visual.brightness}) contrast(${moderatorAvatar.visual.contrast}) saturate(${moderatorAvatar.visual.saturation}) drop-shadow(0 18px 22px rgba(0,0,0,.66))`;
 
     return (
       <section
@@ -1489,12 +1867,16 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       >
         <div className="relative aspect-video overflow-hidden bg-[#08111f]" data-testid="studio-stage">
           <div
-            className="absolute inset-0 transition-transform duration-200 motion-reduce:transition-none [transition-timing-function:cubic-bezier(.2,.82,.2,1)]"
+            ref={cameraRigRef}
+            className="absolute inset-0 transform-gpu transition-none"
             data-studio-shot={effectiveShot}
             data-director-cue={directorCue?.kind ?? "automatic"}
+            data-camera-framing={directorCue?.framing ?? "medium"}
+            data-camera-motion={cameraMotion}
+            data-camera-cut={cameraCutSerial}
             style={{
               transform: cameraTransform,
-              transformOrigin: `${cameraAnchor}% 45%`,
+              transformOrigin: `${cameraAnchor}% ${cameraVerticalAnchor}%`,
               willChange: "transform",
             }}
           >
@@ -1504,7 +1886,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
               fill
               priority
               sizes="(max-width: 1152px) 100vw, 1152px"
-              className="object-cover transition-[filter] duration-200"
+              className="object-cover"
               style={{
                 filter:
                   effectiveShot === "close"
@@ -1529,6 +1911,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             {talk.moderator.kind === "ai" && (
               <video
                 ref={moderatorVideoRef}
+                muted
                 autoPlay
                 playsInline
                 preload="auto"
@@ -1552,7 +1935,11 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                 <div className="absolute inset-x-[18%] bottom-[4%] h-[72%] rounded-full bg-cyan-300/24 blur-2xl" />
                 <div className="absolute inset-x-[24%] bottom-[2%] h-[16%] rounded-full bg-black/45 blur-xl" />
                 <div
-                  className={`absolute -left-[30%] bottom-0 aspect-video w-[160%] drop-shadow-[0_18px_22px_rgba(0,0,0,.68)] transition-opacity duration-300 ${moderatorVideoReady ? "opacity-0" : "opacity-100"}`}
+                  className={`absolute -left-[30%] bottom-0 aspect-video w-[160%] origin-bottom transition-opacity duration-150 ${moderatorVideoReady ? "opacity-0" : "opacity-100"}`}
+                  style={{
+                    transform: moderatorMediaTransform,
+                    filter: moderatorMediaFilter,
+                  }}
                 >
                   <Image
                     src={moderatorAvatar.image}
@@ -1565,7 +1952,11 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                 </div>
                 <canvas
                   ref={moderatorCanvasRef}
-                  className={`absolute -left-[30%] bottom-0 aspect-video w-[160%] drop-shadow-[0_18px_22px_rgba(0,0,0,.68)] transition-opacity duration-300 ${moderatorVideoReady ? "opacity-100" : "opacity-0"}`}
+                  className={`absolute -left-[30%] bottom-0 aspect-video w-[160%] origin-bottom transition-opacity duration-150 ${moderatorVideoReady ? "opacity-100" : "opacity-0"}`}
+                  style={{
+                    transform: moderatorMediaTransform,
+                    filter: moderatorMediaFilter,
+                  }}
                 />
               </div>
             )}
@@ -1578,20 +1969,23 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
               const isLiveAvatar =
                 participant.kind === "ai" && seatVideoReady[index];
               const isCamera = cameraSeat === index;
+              const avatarMediaTransform = `translate(${avatar.visual.offsetXPercent}%, ${avatar.visual.offsetYPercent}%) scale(${avatar.visual.scale * themeAvatarScale})`;
+              const avatarMediaFilter = `brightness(${avatar.visual.brightness}) contrast(${avatar.visual.contrast}) saturate(${avatar.visual.saturation}) drop-shadow(0 16px 18px rgba(0,0,0,.58))`;
 
             return (
               <div key={`${participant.name}-${index}`}>
                 <div
-                  className="absolute h-[63%] transition-all duration-200 ease-out"
+                  className="absolute h-[63%] transition-[opacity,transform] duration-[90ms] ease-out"
                   style={{
                     ...layout,
                     bottom: `${studioTheme.avatarBottomPercent ?? 8}%`,
                   }}
                   aria-hidden={layout.opacity === 0}
                 >
-                  <div className="absolute inset-x-[24%] bottom-[2%] h-[16%] rounded-full bg-black/45 blur-xl" />
+                  <div className="absolute inset-x-[25%] bottom-[1%] h-[13%] rounded-full bg-black/50 blur-xl" />
+                  <div className="absolute inset-x-[22%] bottom-[9%] h-[64%] rounded-full bg-[radial-gradient(ellipse_at_50%_70%,rgba(103,232,249,.12),transparent_68%)] mix-blend-screen" />
                   {(isActive || isTarget) && (
-                    <div className={`absolute inset-x-[20%] bottom-[7%] h-[72%] rounded-full blur-2xl ${isActive ? "bg-cyan-300/30" : "bg-amber-300/18"}`} />
+                    <div className={`absolute inset-x-[23%] bottom-[8%] h-[66%] rounded-full blur-2xl ${isActive ? "bg-cyan-300/16" : "bg-amber-300/10"}`} />
                   )}
 
                   {participant.kind === "human" && !isCamera ? (
@@ -1600,7 +1994,11 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                     </div>
                   ) : (
                     <div
-                      className={`absolute -left-[30%] bottom-0 aspect-video w-[160%] drop-shadow-[0_18px_20px_rgba(0,0,0,.62)] transition-opacity duration-500 ${isLiveAvatar || isCamera ? "opacity-0" : "opacity-100"}`}
+                      className={`absolute -left-[30%] bottom-0 aspect-video w-[160%] origin-bottom transition-opacity duration-150 ${isLiveAvatar || isCamera ? "opacity-0" : "opacity-100"}`}
+                      style={{
+                        transform: avatarMediaTransform,
+                        filter: avatarMediaFilter,
+                      }}
                     >
                       <Image
                         src={avatar.image}
@@ -1619,6 +2017,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                         ref={(element) => {
                           avatarVideoRefs.current[index] = element;
                         }}
+                        muted
                         autoPlay
                         playsInline
                         preload="auto"
@@ -1628,7 +2027,11 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                         ref={(element) => {
                           avatarCanvasRefs.current[index] = element;
                         }}
-                        className={`absolute -left-[30%] bottom-0 aspect-video w-[160%] drop-shadow-[0_18px_20px_rgba(0,0,0,.62)] transition-opacity duration-500 ${isLiveAvatar ? "opacity-100" : "opacity-0"}`}
+                        className={`absolute -left-[30%] bottom-0 aspect-video w-[160%] origin-bottom transition-opacity duration-150 ${isLiveAvatar ? "opacity-100" : "opacity-0"}`}
+                        style={{
+                          transform: avatarMediaTransform,
+                          filter: avatarMediaFilter,
+                        }}
                       />
                     </>
                   )}
@@ -1674,7 +2077,41 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
               );
             })}
 
-            {studioTheme.foregroundImage ? (
+            {studioTheme.proceduralForeground === "midnight_arc" ? (
+              <div className="pointer-events-none absolute inset-x-[2.5%] bottom-[-4%] z-[25] h-[36%]">
+                <div className="absolute inset-x-[1.5%] top-0 h-[17%] rounded-[50%] border border-cyan-100/24 bg-[linear-gradient(180deg,rgba(210,244,255,.34),rgba(38,75,96,.34)_42%,rgba(5,14,25,.82))] shadow-[0_-10px_35px_rgba(34,211,238,.1),0_22px_60px_rgba(0,0,0,.55)] backdrop-blur-[3px]" />
+                <div className="absolute inset-x-0 bottom-0 top-[8%] overflow-hidden rounded-[44%_44%_14%_14%/22%_22%_7%_7%] border-x border-t border-white/12 bg-[linear-gradient(180deg,rgba(19,45,65,.84),rgba(5,13,24,.96)_52%,rgba(2,7,14,.99))] shadow-[inset_0_1px_0_rgba(255,255,255,.18),0_-8px_35px_rgba(34,211,238,.08)]">
+                  <div className="absolute inset-0 bg-[repeating-linear-gradient(90deg,transparent_0,transparent_3.8%,rgba(125,211,252,.045)_4%,transparent_4.3%)]" />
+                  <div className="absolute inset-x-[8%] top-[12%] h-px bg-gradient-to-r from-transparent via-cyan-200/35 to-transparent" />
+                  <div className="absolute left-[18%] top-[18%] h-[42%] w-[18%] rounded-full bg-cyan-400/8 blur-3xl" />
+                  <div className="absolute right-[16%] top-[22%] h-[38%] w-[16%] rounded-full bg-orange-400/8 blur-3xl" />
+                </div>
+                {SEAT_CENTERS.map((position, index) => (
+                  <div
+                    key={`podcast-mic-${position}`}
+                    data-podcast-mic={index}
+                    className="absolute top-[-2%] h-[28%] w-[3%] transition-opacity duration-150"
+                    style={{
+                      left: `${position - 1.5}%`,
+                      opacity:
+                        effectiveShot === "wide" ||
+                        index === framedFocusIndex ||
+                        (effectiveShot === "duo" && index === duoCompanionIndex)
+                          ? 1
+                          : 0,
+                    }}
+                  >
+                    <div
+                      className="absolute left-1/2 top-[35%] h-[70%] w-px origin-top bg-slate-500/65"
+                      style={{
+                        transform: `rotate(${index < 2 ? -12 : index > 2 ? 12 : 0}deg)`,
+                      }}
+                    />
+                    <div className="absolute left-1/2 top-[13%] h-[34%] w-[42%] -translate-x-1/2 rounded-full border border-slate-300/25 bg-[linear-gradient(90deg,#111827,#475569_48%,#0f172a)] shadow-[0_4px_10px_rgba(0,0,0,.45)]" />
+                  </div>
+                ))}
+              </div>
+            ) : studioTheme.foregroundImage ? (
               <div className="pointer-events-none absolute inset-0 z-[25] -translate-y-[1%]">
                 <Image
                   src={studioTheme.foregroundImage}
@@ -1707,6 +2144,15 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
               </div>
             )}
           </div>
+
+          <div className="pointer-events-none absolute inset-0 z-[27] bg-[radial-gradient(circle_at_50%_42%,transparent_0%,transparent_48%,rgba(1,6,14,.18)_78%,rgba(1,5,12,.48)_100%)] mix-blend-multiply" />
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-[27] h-[18%] bg-gradient-to-b from-black/18 to-transparent" />
+
+          <div
+            key={cameraCutSerial}
+            className="broadcast-camera-cut pointer-events-none absolute inset-0 z-[28] bg-slate-950"
+            aria-hidden="true"
+          />
 
           <div className="absolute left-[2.2%] top-[3.5%] z-40 flex items-center gap-2 rounded-full border border-white/15 bg-[#07101d]/82 px-[2.1%] py-[.8%] text-[clamp(.52rem,1vw,.92rem)] font-black tracking-[.22em] text-white shadow-lg backdrop-blur-md">
             <span className="inline-flex size-[clamp(.32rem,.72vw,.52rem)] rounded-full bg-cyan-400 shadow-[0_0_12px_#22d3ee]" />
@@ -1743,28 +2189,77 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             </div>
           )}
 
-          {showBroadcastContext && currentThread && !phaseStinger && (
+          {!isBroadcast && showBroadcastContext && currentThread && !phaseStinger && (
             <div className="absolute left-1/2 top-[4%] z-30 max-w-[46%] -translate-x-1/2 truncate rounded-full border border-white/10 bg-slate-950/68 px-[2%] py-[.7%] text-center text-[clamp(.46rem,.82vw,.8rem)] font-semibold text-slate-100 shadow-lg backdrop-blur-md">
               {currentThread}
             </div>
           )}
 
           {phaseStinger && (
-            <div className="broadcast-stinger absolute inset-x-[18%] top-[30%] z-50 overflow-hidden rounded-xl border border-cyan-200/25 bg-[#050b15]/94 px-[4%] py-[2.4%] text-center text-white shadow-[0_24px_80px_rgba(0,0,0,.55)] backdrop-blur-lg">
-              <p className="text-[clamp(.3rem,.7vw,.54rem)] font-black uppercase tracking-[.28em] text-cyan-300">
-                {t("studioNextChapter")}
-              </p>
-              <p className="mt-[1%] text-[clamp(.7rem,2vw,1.65rem)] font-black tracking-tight">
-                {t(arcPhaseKey(phaseStinger))}
-              </p>
-              <div className="mx-auto mt-[1.6%] h-px w-[30%] bg-gradient-to-r from-transparent via-cyan-300 to-transparent" />
+            <div className="broadcast-stinger absolute inset-0 z-50 overflow-hidden bg-[#050b15] text-center text-white shadow-[0_24px_80px_rgba(0,0,0,.55)]">
+              <Image
+                src="/studio/conclavia-broadcast-bumper-v1.webp"
+                alt=""
+                fill
+                priority
+                sizes="100vw"
+                className="object-cover opacity-90"
+              />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_48%,transparent_0%,rgba(3,8,18,.12)_42%,rgba(3,8,18,.6)_100%)]" />
+              <div className="absolute inset-0 flex flex-col items-center justify-center px-[12%]">
+                <p className="text-[clamp(.34rem,.78vw,.72rem)] font-black uppercase tracking-[.32em] text-cyan-300">
+                  CONCLAVIA · {t("studioNextChapter")}
+                </p>
+                <p className="mt-[1.2%] text-[clamp(1rem,3.2vw,3.4rem)] font-black tracking-[-.035em]">
+                  {t(arcPhaseKey(phaseStinger))}
+                </p>
+                <div className="mt-[2%] h-px w-[22%] bg-gradient-to-r from-transparent via-cyan-300 to-transparent" />
+              </div>
+            </div>
+          )}
+
+          {audienceCard && !phaseStinger && (
+            <div
+              key={"id" in audienceCard ? audienceCard.id : audienceCard.messageId}
+              className="broadcast-audience-card pointer-events-none absolute bottom-[30%] left-[4%] z-[48] max-w-[54%] overflow-hidden rounded-xl border border-white/15 bg-[#050b15]/94 text-white shadow-[0_20px_64px_rgba(0,0,0,.58)] backdrop-blur-lg"
+            >
+              <div className="flex items-stretch">
+                <div className="w-[.42rem] shrink-0 bg-red-600" />
+                <div className="flex min-w-0 items-start gap-[clamp(.6rem,1.1vw,1rem)] px-[clamp(.75rem,1.5vw,1.35rem)] py-[clamp(.65rem,1.15vw,1.05rem)]">
+                  <div
+                    className="mt-[.1rem] flex size-[clamp(1.8rem,3.2vw,3rem)] shrink-0 items-center justify-center rounded-full border border-white/20 bg-slate-700 bg-cover bg-center text-[clamp(.58rem,1vw,.9rem)] font-black uppercase"
+                    style={
+                      audienceCard.authorImageUrl
+                        ? {
+                            backgroundImage: `url(${JSON.stringify(audienceCard.authorImageUrl)})`,
+                          }
+                        : undefined
+                    }
+                  >
+                    {!audienceCard.authorImageUrl && audienceCard.authorName.slice(0, 1)}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded bg-red-600 px-[.48em] py-[.2em] text-[clamp(.42rem,.65vw,.68rem)] font-black uppercase tracking-[.13em]">
+                        YouTube · {t("audienceOnAir")}
+                      </span>
+                      <span className="truncate text-[clamp(.54rem,.82vw,.86rem)] font-bold text-slate-200">
+                        @{audienceCard.authorName}
+                      </span>
+                    </div>
+                    <p className="mt-[.45em] line-clamp-3 text-[clamp(.68rem,1.15vw,1.2rem)] font-semibold leading-[1.32] text-white">
+                      “{audienceCard.content}”
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
           {currentSpeaker && showBroadcastContext && !runCompleted && (
             <div
               key={`${programmeMessage?.sequence ?? "plan"}-${currentSpeaker}-${reactionPreviewIndex ?? "speaker"}`}
-              className="broadcast-lower-third absolute bottom-[16%] left-[4%] z-40 flex max-w-[58%] items-stretch overflow-hidden rounded-r-lg border border-white/12 bg-[#050b15]/92 text-white shadow-[0_16px_48px_rgba(0,0,0,.46)] backdrop-blur-md"
+              className="broadcast-lower-third absolute bottom-[23%] left-[4%] z-40 flex max-w-[58%] items-stretch overflow-hidden rounded-r-lg border border-white/12 bg-[#050b15]/92 text-white shadow-[0_16px_48px_rgba(0,0,0,.46)] backdrop-blur-md"
               style={{
                 borderLeftColor:
                   SEAT_ACCENTS[
@@ -1774,6 +2269,18 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
               }}
             >
               <div className="flex min-w-0 items-center gap-[clamp(.45rem,1.1vw,1.1rem)] px-[2.2vw] py-[.9vw]">
+                <div
+                  className="flex h-[clamp(1.4rem,2.4vw,2.6rem)] shrink-0 items-center gap-[clamp(2px,.22vw,4px)] rounded-md border border-cyan-300/15 bg-cyan-300/8 px-[clamp(.35rem,.55vw,.65rem)]"
+                  aria-hidden="true"
+                >
+                  {[0, 1, 2, 3].map((bar) => (
+                    <span
+                      key={bar}
+                      className={`h-[58%] w-[clamp(2px,.2vw,4px)] origin-bottom rounded-full bg-cyan-300 ${broadcastAudioState === "speaking" || studioState === "speaking" ? "broadcast-audio-meter-bar" : "scale-y-[.28]"}`}
+                      style={{ animationDelay: `${bar * 90}ms` }}
+                    />
+                  ))}
+                </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-[.7vw]">
                     {(reactionPreviewIndex !== undefined || currentIntent) && (
@@ -1794,20 +2301,12 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                   <p className="mt-[.28vw] truncate text-[clamp(.82rem,1.42vw,1.65rem)] font-black leading-none tracking-tight">
                     {currentSpeaker}
                   </p>
-                  {currentRole && (
-                    <p className="mt-[.32vw] truncate text-[clamp(.5rem,.76vw,.9rem)] font-medium text-slate-300">
-                      {currentRole}
+                  {(currentRole || currentThread) && (
+                    <p className="mt-[.34vw] truncate text-[clamp(.5rem,.76vw,.9rem)] font-medium text-slate-300">
+                      {[currentRole, currentThread].filter(Boolean).join(" · ")}
                     </p>
                   )}
                 </div>
-                {studioIsLive && (
-                  <div className="broadcast-audio-meter ml-auto flex h-[1.5vw] min-h-3 shrink-0 items-center gap-[.14vw]" aria-hidden="true">
-                    <span />
-                    <span />
-                    <span />
-                    <span />
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -1815,7 +2314,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           {visibleCaption && (
             <div
               key={`${onAirMessage?.sequence ?? "stream"}-${captionIndex}`}
-              className="broadcast-caption absolute inset-x-[15%] bottom-[3.8%] z-50 px-[2.4%] py-[.8%] text-center text-[clamp(.76rem,1.38vw,1.55rem)] font-bold leading-[1.28] tracking-[-.01em] text-white"
+              className="broadcast-caption absolute inset-x-[12%] bottom-[3.8%] z-50 px-[2.4%] py-[.8%] text-center text-[clamp(.78rem,1.52vw,1.7rem)] font-bold leading-[1.26] tracking-[-.012em] text-white"
             >
               <p className="mx-auto max-w-[48ch] rounded-md bg-black/82 px-[1.15em] py-[.42em] shadow-[0_8px_32px_rgba(0,0,0,.5)] backdrop-blur-sm">
                 {visibleCaption}
@@ -1824,13 +2323,28 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           )}
 
           {runCompleted && run?.discussionState.conclusion && (
-            <div className="absolute inset-x-[17%] bottom-[18%] z-50 rounded-xl border border-cyan-200/25 bg-[#06111f]/92 px-[3%] py-[2%] text-center text-white shadow-2xl backdrop-blur-lg">
-              <p className="text-[clamp(.34rem,.72vw,.62rem)] font-black uppercase tracking-[.2em] text-cyan-300">
-                {t("runnerConclusionTitle")}
-              </p>
-              <p className="mt-[1%] line-clamp-3 text-[clamp(.46rem,1.15vw,1rem)] font-semibold leading-relaxed">
-                {run.discussionState.conclusion.answer}
-              </p>
+            <div className="absolute inset-0 z-50 overflow-hidden bg-[#050b15] text-center text-white">
+              <Image
+                src="/studio/conclavia-broadcast-bumper-v1.webp"
+                alt=""
+                fill
+                priority
+                sizes="100vw"
+                className="object-cover opacity-80"
+              />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,transparent_0%,rgba(3,8,18,.16)_44%,rgba(3,8,18,.68)_100%)]" />
+              <div className="absolute inset-0 flex flex-col items-center justify-center px-[14%]">
+                <p className="text-[clamp(.34rem,.76vw,.7rem)] font-black uppercase tracking-[.26em] text-cyan-300">
+                  CONCLAVIA · {t("runnerConclusionTitle")}
+                </p>
+                <p className="mt-[1.5%] line-clamp-4 max-w-[44ch] text-[clamp(.72rem,1.75vw,1.9rem)] font-semibold leading-[1.28] tracking-[-.02em]">
+                  {run.discussionState.conclusion.answer}
+                </p>
+                <div className="mt-[2.2%] h-px w-[18%] bg-gradient-to-r from-transparent via-cyan-300 to-transparent" />
+                <p className="mt-[1.2%] text-[clamp(.28rem,.58vw,.55rem)] font-bold uppercase tracking-[.24em] text-slate-400">
+                  {talk.title}
+                </p>
+              </div>
             </div>
           )}
         </div>
@@ -1848,9 +2362,24 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                       {t("studioDirectorHelp")}
                     </p>
                   </div>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
-                    {t(studioStateKey)}
-                  </span>
+                  <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                        usesCreatorDirection
+                          ? "bg-fuchsia-400/15 text-fuchsia-200"
+                          : "bg-slate-200/10 text-slate-300"
+                      }`}
+                    >
+                      {t(
+                        usesCreatorDirection
+                          ? "studioDirectionCreator"
+                          : "studioDirectionEditorial",
+                      )}
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-slate-300">
+                      {t(studioStateKey)}
+                    </span>
+                  </div>
                 </div>
                 <div className="mt-3 grid grid-cols-4 gap-1 rounded-xl border border-white/10 bg-black/20 p-1">
                   {(["auto", "wide", "close", "duo"] as const).map((mode) => (
@@ -1931,6 +2460,26 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                   <span className="text-slate-500">{t("studioEstimatedCredits")}</span>
                 </div>
               </div>
+              {timingMetrics.samples > 0 && (
+                <div className="mt-2 grid grid-cols-2 gap-2 text-center text-[11px]">
+                  <div className="rounded-lg border border-cyan-300/15 bg-cyan-300/5 p-2">
+                    <span className="block font-bold text-cyan-200">
+                      {timingMetrics.startupMs === undefined
+                        ? "—"
+                        : `${(timingMetrics.startupMs / 1_000).toFixed(2)} s`}
+                    </span>
+                    <span className="text-slate-500">{t("studioVoiceStartup")}</span>
+                  </div>
+                  <div className="rounded-lg border border-cyan-300/15 bg-cyan-300/5 p-2">
+                    <span className="block font-bold text-cyan-200">
+                      {timingMetrics.handoffMs === undefined
+                        ? "—"
+                        : `${(timingMetrics.handoffMs / 1_000).toFixed(2)} s`}
+                    </span>
+                    <span className="text-slate-500">{t("studioVoiceHandoff")}</span>
+                  </div>
+                </div>
+              )}
               <div className="mt-3 flex flex-wrap gap-1.5">
                 {liveTargets.map((target) => {
                   const targetState =
@@ -1982,9 +2531,11 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                   onChange={(event) => {
                     const nextVolume = Number(event.target.value);
                     setVolume(nextVolume);
+                    const gain = audioGraphRef.current?.gain;
+                    if (gain) gain.gain.setTargetAtTime(nextVolume, gain.context.currentTime, 0.01);
                     for (const managed of sessionsRef.current.values()) {
-                      managed.video.volume = nextVolume;
-                      managed.video.muted = nextVolume === 0;
+                      managed.video.volume = 0;
+                      managed.video.muted = true;
                     }
                   }}
                   className="min-w-0 flex-1 accent-cyan-300"

@@ -1,4 +1,8 @@
 export const STUDIO_THEME_IDS = [
+  "after_hours",
+  "color_block_club",
+  "electric_commons",
+  "soft_social",
   "broadcast_panel",
   "pop_garage",
   "pulp_podcast",
@@ -8,6 +12,7 @@ export const STUDIO_THEME_IDS = [
 ] as const;
 
 export type StudioThemeId = (typeof STUDIO_THEME_IDS)[number];
+export type StudioEditorialTone = "creator" | "editorial";
 
 export interface StudioTheme {
   id: StudioThemeId;
@@ -15,36 +20,83 @@ export interface StudioTheme {
   foregroundImage?: string;
   foregroundStartPercent?: number;
   avatarBottomPercent?: number;
+  proceduralForeground?: "midnight_arc";
+  editorialTone: StudioEditorialTone;
+  productionTier: "premium" | "creative";
 }
 
-export const DEFAULT_STUDIO_THEME: StudioThemeId = "broadcast_panel";
+export const DEFAULT_STUDIO_THEME: StudioThemeId = "after_hours";
 
 export const STUDIO_THEMES: readonly StudioTheme[] = [
+  {
+    id: "after_hours",
+    image: "/studio/studio-after-hours.webp",
+    avatarBottomPercent: 25,
+    proceduralForeground: "midnight_arc",
+    editorialTone: "creator",
+    productionTier: "premium",
+  },
+  {
+    id: "color_block_club",
+    image: "/studio/studio-color-block-club.webp",
+    foregroundImage: "/studio/studio-color-block-club-foreground.webp",
+    avatarBottomPercent: 33,
+    editorialTone: "creator",
+    productionTier: "premium",
+  },
+  {
+    id: "electric_commons",
+    image: "/studio/studio-electric-commons.webp",
+    foregroundImage: "/studio/studio-electric-commons-foreground.webp",
+    avatarBottomPercent: 41,
+    editorialTone: "editorial",
+    productionTier: "premium",
+  },
+  {
+    id: "soft_social",
+    image: "/studio/studio-soft-social.webp",
+    foregroundImage: "/studio/studio-soft-social-foreground.webp",
+    avatarBottomPercent: 38,
+    editorialTone: "editorial",
+    productionTier: "premium",
+  },
+  {
+    id: "pop_garage",
+    image: "/studio/studio-pop-garage.webp",
+    editorialTone: "creator",
+    productionTier: "creative",
+  },
+  {
+    id: "pulp_podcast",
+    image: "/studio/studio-pulp-podcast.webp",
+    editorialTone: "creator",
+    productionTier: "creative",
+  },
+  {
+    id: "rooftop_hangout",
+    image: "/studio/studio-rooftop-hangout.webp",
+    editorialTone: "creator",
+    productionTier: "creative",
+  },
+  {
+    id: "late_night",
+    image: "/studio/studio-late-night.webp",
+    editorialTone: "creator",
+    productionTier: "creative",
+  },
+  {
+    id: "neon_playground",
+    image: "/studio/studio-neon-playground.webp",
+    editorialTone: "creator",
+    productionTier: "creative",
+  },
   {
     id: "broadcast_panel",
     image: "/studio/studio-broadcast-panel-seated.webp",
     foregroundImage: "/studio/studio-broadcast-panel-foreground.png",
     avatarBottomPercent: 38,
-  },
-  {
-    id: "pop_garage",
-    image: "/studio/studio-pop-garage.webp",
-  },
-  {
-    id: "pulp_podcast",
-    image: "/studio/studio-pulp-podcast.webp",
-  },
-  {
-    id: "rooftop_hangout",
-    image: "/studio/studio-rooftop-hangout.webp",
-  },
-  {
-    id: "late_night",
-    image: "/studio/studio-late-night.webp",
-  },
-  {
-    id: "neon_playground",
-    image: "/studio/studio-neon-playground.webp",
+    editorialTone: "editorial",
+    productionTier: "premium",
   },
 ] as const;
 

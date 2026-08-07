@@ -19,6 +19,11 @@ import {
   STUDIO_THEMES,
   type StudioThemeId,
 } from "@/lib/studio-themes";
+import {
+  findStudioVoice,
+  getStudioVoice,
+  STUDIO_VOICES,
+} from "@/lib/liveavatar-catalog";
 import type {
   ModeratorKind,
   Participant,
@@ -27,6 +32,7 @@ import type {
   TalkInput,
   TalkPace,
   TalkResponse,
+  VoiceDelivery,
 } from "@/types/talk";
 
 type CastPreset = "allAi" | "hybrid" | "allHuman" | "unassigned";
@@ -38,6 +44,22 @@ const STUDIO_THEME_COPY: Record<
   StudioThemeId,
   { title: TranslationKey; description: TranslationKey }
 > = {
+  after_hours: {
+    title: "studioThemeAfterHours",
+    description: "studioThemeAfterHoursHelp",
+  },
+  color_block_club: {
+    title: "studioThemeColorBlock",
+    description: "studioThemeColorBlockHelp",
+  },
+  electric_commons: {
+    title: "studioThemeElectric",
+    description: "studioThemeElectricHelp",
+  },
+  soft_social: {
+    title: "studioThemeSoftSocial",
+    description: "studioThemeSoftSocialHelp",
+  },
   broadcast_panel: {
     title: "studioThemeBroadcast",
     description: "studioThemeBroadcastHelp",
@@ -64,6 +86,19 @@ const STUDIO_THEME_COPY: Record<
   },
 };
 
+const STUDIO_THEME_GROUPS = [
+  {
+    tone: "creator" as const,
+    title: "studioThemeCreatorGroup" as TranslationKey,
+    description: "studioThemeCreatorGroupHelp" as TranslationKey,
+  },
+  {
+    tone: "editorial" as const,
+    title: "studioThemeEditorialGroup" as TranslationKey,
+    description: "studioThemeEditorialGroupHelp" as TranslationKey,
+  },
+] as const;
+
 function recommendedMaxTurns(minutes: number, pace: TalkPace): number {
   const turnsPerMinute = pace === "fast" ? 2.5 : pace === "deep" ? 1.5 : 2;
   return Math.min(MAX_RUN_TURNS, Math.max(5, Math.round(minutes * turnsPerMinute)));
@@ -81,6 +116,8 @@ function createAiParticipant(index: number, locale: "en" | "it"): Participant {
     nonNegotiables: "",
     speakingStylePrompt: "",
     modelOverride: undefined,
+    voiceId: undefined,
+    voiceDelivery: "natural",
     assertiveness: 50,
     patience: 50,
     interruptiveness: 20,
@@ -98,6 +135,8 @@ function createHumanParticipant(index: number): Participant {
     perspectivePrompt: "",
     speakingStylePrompt: undefined,
     modelOverride: undefined,
+    voiceId: undefined,
+    voiceDelivery: undefined,
     assertiveness: 50,
     patience: 50,
     interruptiveness: 20,
@@ -271,6 +310,32 @@ export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
   const [castError, setCastError] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
   const participant = talk.participants[activeParticipant];
+  const voiceLanguage = talk.language.toLowerCase().startsWith("it") ? "it" : "en";
+  const participantVoiceOptions = STUDIO_VOICES.filter(
+    (voice) =>
+      voice.id === participant.voiceId ||
+      (voice.sex === participant.sex && voice.language === voiceLanguage),
+  );
+  const automaticParticipantVoice = getStudioVoice(
+    talk.participants
+      .slice(0, activeParticipant)
+      .filter(
+        (candidate) =>
+          candidate.kind === "ai" && candidate.sex === participant.sex,
+      ).length,
+    participant.sex,
+    talk.language,
+  );
+  const selectedParticipantVoice =
+    findStudioVoice(participant.voiceId ?? "") ?? automaticParticipantVoice;
+  const moderatorVoiceOptions = STUDIO_VOICES.filter(
+    (voice) =>
+      voice.id === talk.moderator.voiceId ||
+      (voice.sex === "male" && voice.language === voiceLanguage),
+  );
+  const selectedModeratorVoice =
+    findStudioVoice(talk.moderator.voiceId ?? "") ??
+    getStudioVoice(0, "male", talk.language);
 
   function providerLabel(provider: LlmProvider): string {
     return t(provider === "openai" ? "providerOpenAI" : "providerGemini");
@@ -300,6 +365,24 @@ export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
       ...current,
       participants: current.participants.map((item, participantIndex) =>
         participantIndex === index ? next : item,
+      ),
+    }));
+  }
+
+  function setParticipantSex(sex: Participant["sex"]) {
+    setTalk((current) => ({
+      ...current,
+      participants: current.participants.map((item, index) =>
+        index === activeParticipant
+          ? {
+              ...item,
+              sex,
+              voiceId:
+                item.voiceId && findStudioVoice(item.voiceId)?.sex === sex
+                  ? item.voiceId
+                  : undefined,
+            }
+          : item,
       ),
     }));
   }
@@ -397,6 +480,9 @@ export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
           ...replacement,
           sex: talk.participants[participantIndex].sex,
           modelOverride: talk.participants[participantIndex].modelOverride,
+          voiceId: talk.participants[participantIndex].voiceId,
+          voiceDelivery:
+            talk.participants[participantIndex].voiceDelivery ?? "natural",
         });
       }
     } catch {
@@ -432,6 +518,8 @@ export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
         instructions: undefined,
         style: "neutral",
         modelOverride: undefined,
+        voiceId: undefined,
+        voiceDelivery: "natural",
         canInterrupt: true,
         manageTime: true,
         summarizeAtEnd: true,
@@ -877,9 +965,7 @@ export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
                         key={sex}
                         type="button"
                         aria-pressed={participant.sex === sex}
-                        onClick={() =>
-                          updateParticipant(activeParticipant, "sex", sex)
-                        }
+                        onClick={() => setParticipantSex(sex)}
                         className={`rounded-lg border px-3 py-2.5 text-sm font-semibold transition ${
                           participant.sex === sex
                             ? "border-[#295c43] bg-[#edf4ef] text-[#295c43]"
@@ -894,6 +980,88 @@ export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
                     {t("participantSexHelp")}
                   </p>
                 </fieldset>
+
+                {participant.kind === "ai" && (
+                  <div className="rounded-xl border border-[#dfe4dc] bg-[#f8faf8] p-4">
+                    <div className="mb-3">
+                      <h4 className="text-sm font-semibold">{t("voiceCasting")}</h4>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">
+                        {t("voiceCastingHelp")}
+                      </p>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label
+                          htmlFor={`participant-${activeParticipant}-voice`}
+                          className="label"
+                        >
+                          {t("onAirVoice")}
+                        </label>
+                        <select
+                          id={`participant-${activeParticipant}-voice`}
+                          value={participant.voiceId ?? ""}
+                          onChange={(event) =>
+                            updateParticipant(
+                              activeParticipant,
+                              "voiceId",
+                              event.target.value || undefined,
+                            )
+                          }
+                          className="input"
+                        >
+                          <option value="">
+                            {t("voiceAutomatic", {
+                              voice: automaticParticipantVoice.name,
+                            })}
+                          </option>
+                          {participantVoiceOptions.map((voice) => (
+                            <option key={voice.id} value={voice.id}>
+                              {voice.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          htmlFor={`participant-${activeParticipant}-delivery`}
+                          className="label"
+                        >
+                          {t("voiceDelivery")}
+                        </label>
+                        <select
+                          id={`participant-${activeParticipant}-delivery`}
+                          value={participant.voiceDelivery ?? "natural"}
+                          onChange={(event) =>
+                            updateParticipant(
+                              activeParticipant,
+                              "voiceDelivery",
+                              event.target.value as VoiceDelivery,
+                            )
+                          }
+                          className="input"
+                        >
+                          <option value="natural">{t("voiceNatural")}</option>
+                          <option value="energetic">{t("voiceEnergetic")}</option>
+                          <option value="authoritative">
+                            {t("voiceAuthoritative")}
+                          </option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <span className="text-xs font-medium text-slate-600">
+                        {t("voicePreview", { voice: selectedParticipantVoice.name })}
+                      </span>
+                      <audio
+                        key={selectedParticipantVoice.id}
+                        controls
+                        preload="none"
+                        src={`/api/liveavatar/voices/${selectedParticipantVoice.id}/preview`}
+                        className="h-9 w-full max-w-md"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {participant.kind === "human" ? (
                   <div>
@@ -1257,6 +1425,81 @@ export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
                   </select>
                 </div>
               )}
+              {talk.moderator.kind === "ai" && (
+                <div>
+                  <label htmlFor="moderator-voice" className="label">
+                    {t("onAirVoice")}
+                  </label>
+                  <select
+                    id="moderator-voice"
+                    value={talk.moderator.voiceId ?? ""}
+                    onChange={(event) =>
+                      setTalk({
+                        ...talk,
+                        moderator: {
+                          ...talk.moderator,
+                          voiceId: event.target.value || undefined,
+                        },
+                      })
+                    }
+                    className="input"
+                  >
+                    <option value="">
+                      {t("voiceAutomatic", {
+                        voice: getStudioVoice(0, "male", talk.language).name,
+                      })}
+                    </option>
+                    {moderatorVoiceOptions.map((voice) => (
+                      <option key={voice.id} value={voice.id}>
+                        {voice.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {talk.moderator.kind === "ai" && (
+                <div className="sm:col-span-2 rounded-xl border border-[#dfe4dc] bg-[#f8faf8] p-4">
+                  <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] sm:items-end">
+                    <div>
+                      <label htmlFor="moderator-delivery" className="label">
+                        {t("voiceDelivery")}
+                      </label>
+                      <select
+                        id="moderator-delivery"
+                        value={talk.moderator.voiceDelivery ?? "natural"}
+                        onChange={(event) =>
+                          setTalk({
+                            ...talk,
+                            moderator: {
+                              ...talk.moderator,
+                              voiceDelivery: event.target.value as VoiceDelivery,
+                            },
+                          })
+                        }
+                        className="input"
+                      >
+                        <option value="natural">{t("voiceNatural")}</option>
+                        <option value="energetic">{t("voiceEnergetic")}</option>
+                        <option value="authoritative">
+                          {t("voiceAuthoritative")}
+                        </option>
+                      </select>
+                    </div>
+                    <div>
+                      <span className="mb-2 block text-xs font-medium text-slate-600">
+                        {t("voicePreview", { voice: selectedModeratorVoice.name })}
+                      </span>
+                      <audio
+                        key={selectedModeratorVoice.id}
+                        controls
+                        preload="none"
+                        src={`/api/liveavatar/voices/${selectedModeratorVoice.id}/preview`}
+                        className="h-9 w-full"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className="sm:col-span-2">
                 <label htmlFor="moderator-instructions" className="label">
                   {t("moderatorInstructions")} <span className="font-normal text-slate-400">({t("optional")})</span>
@@ -1373,57 +1616,110 @@ export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
         <div className="space-y-6">
           <fieldset id="studio-theme">
             <legend className="label">{t("studioTheme")}</legend>
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-              {STUDIO_THEMES.map((theme) => {
-                const copy = STUDIO_THEME_COPY[theme.id];
-                const selected = talk.settings.studioTheme === theme.id;
-                return (
-                  <label
-                    key={theme.id}
-                    className={`group cursor-pointer overflow-hidden rounded-xl border bg-white transition ${
-                      selected
-                        ? "border-[#295c43] ring-2 ring-[#295c43]/20"
-                        : "border-[#dfe4dc] hover:border-[#a9b9ae]"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="studioTheme"
-                      value={theme.id}
-                      checked={selected}
-                      onChange={() =>
-                        setTalk({
-                          ...talk,
-                          settings: { ...talk.settings, studioTheme: theme.id },
-                        })
-                      }
-                      className="sr-only"
-                    />
-                    <span className="relative block aspect-[4/3] overflow-hidden bg-slate-950">
-                      <Image
-                        src={theme.image}
-                        alt=""
-                        fill
-                        sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
-                        className="object-cover transition duration-300 group-hover:scale-[1.02]"
-                      />
-                      {selected && (
-                        <span className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-[#295c43] text-sm font-bold text-white shadow-lg">
-                          ✓
-                        </span>
+            <div className="space-y-5">
+              {STUDIO_THEME_GROUPS.map((group) => (
+                <div
+                  key={group.tone}
+                  className="rounded-2xl border border-[#e1e6df] bg-[#fafbf9] p-3 sm:p-4"
+                >
+                  <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+                    <div>
+                      <p className="text-sm font-bold text-[#17211b]">
+                        {t(group.title)}
+                      </p>
+                      <p className="mt-0.5 text-xs leading-5 text-slate-500">
+                        {t(group.description)}
+                      </p>
+                    </div>
+                    <span
+                      className={`w-fit rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-[.14em] ${
+                        group.tone === "creator"
+                          ? "bg-fuchsia-100 text-fuchsia-800"
+                          : "bg-slate-200 text-slate-700"
+                      }`}
+                    >
+                      {t(
+                        group.tone === "creator"
+                          ? "studioDirectionCreator"
+                          : "studioDirectionEditorial",
                       )}
                     </span>
-                    <span className="block p-2.5">
-                      <span className="block truncate text-xs font-semibold sm:text-sm">
-                        {t(copy.title)}
-                      </span>
-                    </span>
-                  </label>
-                );
-              })}
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {STUDIO_THEMES.filter(
+                      (theme) => theme.editorialTone === group.tone,
+                    ).map((theme) => {
+                      const copy = STUDIO_THEME_COPY[theme.id];
+                      const selected = talk.settings.studioTheme === theme.id;
+                      return (
+                        <label
+                          key={theme.id}
+                          className={`group cursor-pointer overflow-hidden rounded-xl border bg-white transition ${
+                            selected
+                              ? "border-[#295c43] ring-2 ring-[#295c43]/20"
+                              : "border-[#dfe4dc] hover:border-[#a9b9ae]"
+                          }`}
+                        >
+                          <input
+                            type="radio"
+                            name="studioTheme"
+                            value={theme.id}
+                            checked={selected}
+                            onChange={() =>
+                              setTalk({
+                                ...talk,
+                                settings: {
+                                  ...talk.settings,
+                                  studioTheme: theme.id,
+                                },
+                              })
+                            }
+                            className="sr-only"
+                          />
+                          <span className="relative block aspect-video overflow-hidden bg-slate-950">
+                            <Image
+                              src={theme.image}
+                              alt=""
+                              fill
+                              sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                              className="object-cover transition duration-300 group-hover:scale-[1.02]"
+                            />
+                            {selected && (
+                              <span className="absolute right-2 top-2 flex size-7 items-center justify-center rounded-full bg-[#295c43] text-sm font-bold text-white shadow-lg">
+                                ✓
+                              </span>
+                            )}
+                            <span
+                              className={`absolute bottom-2 left-2 rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-[.12em] shadow-lg backdrop-blur-md ${
+                                theme.productionTier === "premium"
+                                  ? "bg-cyan-300 text-slate-950"
+                                  : "border border-white/15 bg-slate-950/75 text-slate-200"
+                              }`}
+                            >
+                              {t(
+                                theme.productionTier === "premium"
+                                  ? "studioThemePremium"
+                                  : "studioThemeCreativePreview",
+                              )}
+                            </span>
+                          </span>
+                          <span className="block p-2.5">
+                            <span className="block truncate text-xs font-semibold sm:text-sm">
+                              {t(copy.title)}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
             <p className="mt-2 text-xs leading-5 text-slate-500">
               {t(STUDIO_THEME_COPY[talk.settings.studioTheme].description)}
+            </p>
+            <p className="mt-1 text-xs font-medium leading-5 text-[#295c43]">
+              {t("studioThemeProductionNote")}
             </p>
           </fieldset>
 

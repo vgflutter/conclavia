@@ -1,4 +1,5 @@
 import type { LlmModelId, LlmProvider } from "@/lib/llm-models";
+import type { TalkRunAudienceCue } from "@/types/audience";
 import type { TalkResponse } from "@/types/talk";
 
 export type TalkRunStatus =
@@ -59,6 +60,7 @@ export interface TalkRunTurnPlan {
   referenceStyle: TalkRunReferenceStyle;
   minWords: number;
   maxWords: number;
+  audienceCue?: TalkRunAudienceCue;
 }
 
 export interface TalkRunParticipantMemory {
@@ -149,6 +151,7 @@ export interface TalkRunMessageResponse {
   content: string;
   inputTokens?: number;
   outputTokens?: number;
+  audienceCue?: TalkRunAudienceCue;
   createdAt: string;
 }
 
@@ -163,6 +166,7 @@ export interface TalkRunResponse {
   estimatedAirtimeSeconds: number;
   nextParticipantIndex: number;
   activeTurn?: TalkRunTurnPlan;
+  audienceCue?: TalkRunAudienceCue;
   hasPreparedTurn: boolean;
   discussionState: TalkRunDiscussionState;
   talkSnapshot?: TalkResponse;

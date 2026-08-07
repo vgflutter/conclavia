@@ -8,6 +8,7 @@ import {
 } from "mongoose";
 
 import { LLM_MODEL_IDS, type LlmModelId, type LlmProvider } from "@/lib/llm-models";
+import type { TalkRunAudienceCue } from "@/types/audience";
 import type { TalkResponse } from "@/types/talk";
 import type {
   TalkRunDiscussionState,
@@ -41,6 +42,7 @@ export interface TalkRunMessageRecord {
   content: string;
   inputTokens?: number;
   outputTokens?: number;
+  audienceCue?: TalkRunAudienceCue;
   createdAt: Date;
 }
 
@@ -54,6 +56,7 @@ export interface TalkRunRecord {
   estimatedAirtimeSeconds: number;
   nextParticipantIndex: number;
   activeTurn?: TalkRunTurnPlan;
+  audienceCue?: TalkRunAudienceCue;
   preparedTurn?: TalkRunPreparedTurnRecord;
   discussionState: TalkRunDiscussionState;
   talkSnapshot?: TalkResponse;
@@ -76,6 +79,28 @@ export interface TalkRunPreparedTurnRecord {
   outputTokens?: number;
   createdAt: Date;
 }
+
+const audienceCueSchema = new Schema<TalkRunAudienceCue>(
+  {
+    provider: { type: String, enum: ["youtube"], required: true },
+    messageId: { type: String, required: true, trim: true },
+    authorName: { type: String, required: true, trim: true },
+    authorImageUrl: { type: String, trim: true },
+    content: { type: String, required: true, trim: true, maxlength: 1_000 },
+    mode: {
+      type: String,
+      enum: ["host", "participant", "prompt"],
+      required: true,
+    },
+    targetParticipantIndex: {
+      type: Number,
+      min: 0,
+      max: 4,
+      validate: Number.isInteger,
+    },
+  },
+  { _id: false },
+);
 
 const messageSchema = new Schema<TalkRunMessageRecord>(
   {
@@ -145,6 +170,7 @@ const messageSchema = new Schema<TalkRunMessageRecord>(
     content: { type: String, required: true, trim: true },
     inputTokens: { type: Number, min: 0, validate: Number.isInteger },
     outputTokens: { type: Number, min: 0, validate: Number.isInteger },
+    audienceCue: { type: audienceCueSchema },
     createdAt: { type: Date, required: true, default: Date.now },
   },
   { _id: false },
@@ -200,6 +226,7 @@ const activeTurnSchema = new Schema<TalkRunTurnPlan>(
     },
     minWords: { type: Number, required: true, min: 1, validate: Number.isInteger },
     maxWords: { type: Number, required: true, min: 1, validate: Number.isInteger },
+    audienceCue: { type: audienceCueSchema },
   },
   { _id: false },
 );
@@ -375,6 +402,7 @@ const talkRunSchema = new Schema<TalkRunRecord>(
       validate: Number.isInteger,
     },
     activeTurn: { type: activeTurnSchema },
+    audienceCue: { type: audienceCueSchema },
     preparedTurn: { type: preparedTurnSchema },
     discussionState: {
       type: discussionStateSchema,

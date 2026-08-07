@@ -5,6 +5,7 @@ export type TalkStatus = "draft" | "ready";
 export type PerspectiveMode = "custom" | "automatic" | "random";
 export type ParticipantKind = "ai" | "human" | "unassigned";
 export type ParticipantSex = "female" | "male";
+export type VoiceDelivery = "natural" | "energetic" | "authoritative";
 export type ModeratorKind = "none" | "ai" | "human";
 export type ModeratorStyle = "neutral" | "challenging" | "facilitating";
 export type TalkPace = "fast" | "balanced" | "deep";
@@ -20,6 +21,8 @@ export interface Participant {
   nonNegotiables?: string;
   speakingStylePrompt?: string;
   modelOverride?: LlmModelId;
+  voiceId?: string;
+  voiceDelivery?: VoiceDelivery;
   assertiveness: number;
   patience: number;
   interruptiveness: number;
@@ -33,6 +36,8 @@ export interface ModeratorConfiguration {
   instructions?: string;
   style: ModeratorStyle;
   modelOverride?: LlmModelId;
+  voiceId?: string;
+  voiceDelivery?: VoiceDelivery;
   canInterrupt: boolean;
   manageTime: boolean;
   summarizeAtEnd: boolean;

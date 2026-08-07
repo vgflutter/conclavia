@@ -1,5 +1,20 @@
 import type { TalkRunDocument } from "@/models/TalkRun";
+import type { TalkRunAudienceCue } from "@/types/audience";
 import type { TalkRunResponse } from "@/types/talk-run";
+
+function serializeAudienceCue(
+  cue: TalkRunAudienceCue,
+): TalkRunAudienceCue {
+  return {
+    provider: cue.provider,
+    messageId: cue.messageId,
+    authorName: cue.authorName,
+    authorImageUrl: cue.authorImageUrl,
+    content: cue.content,
+    mode: cue.mode,
+    targetParticipantIndex: cue.targetParticipantIndex,
+  };
+}
 
 export function serializeTalkRun(run: TalkRunDocument): TalkRunResponse {
   const discussionState = run.discussionState;
@@ -49,7 +64,13 @@ export function serializeTalkRun(run: TalkRunDocument): TalkRunResponse {
           referenceStyle: run.activeTurn.referenceStyle ?? "idea_first",
           minWords: run.activeTurn.minWords,
           maxWords: run.activeTurn.maxWords,
+          audienceCue: run.activeTurn.audienceCue
+            ? serializeAudienceCue(run.activeTurn.audienceCue)
+            : undefined,
         }
+      : undefined,
+    audienceCue: run.audienceCue
+      ? serializeAudienceCue(run.audienceCue)
       : undefined,
     hasPreparedTurn:
       Boolean(run.preparedTurn) &&
@@ -133,6 +154,9 @@ export function serializeTalkRun(run: TalkRunDocument): TalkRunResponse {
       content: message.content,
       inputTokens: message.inputTokens,
       outputTokens: message.outputTokens,
+      audienceCue: message.audienceCue
+        ? serializeAudienceCue(message.audienceCue)
+        : undefined,
       createdAt: message.createdAt.toISOString(),
     })),
     talkSnapshot,

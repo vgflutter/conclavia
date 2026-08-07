@@ -65,9 +65,9 @@ const BASE_WORD_RANGES: Record<TalkRunIntent, [number, number]> = {
 };
 
 const PACE_SCALE: Record<TalkPace, number> = {
-  fast: 0.78,
-  balanced: 1,
-  deep: 1.22,
+  fast: 0.66,
+  balanced: 0.9,
+  deep: 1.12,
 };
 
 export function estimateAirtimeSeconds(
@@ -288,7 +288,12 @@ function participantIntent(
   if (floorRequest) return floorRequest.intent;
   if (previousParticipants.length === 0) return "argument";
 
-  if (run.discussionState.arcPhase === "positions") return "argument";
+  if (run.discussionState.arcPhase === "positions") {
+    if (previousParticipants.length < 2) return "argument";
+    return participant.assertiveness + participant.baselineTension >= 105
+      ? "challenge"
+      : "reply";
+  }
   if (run.discussionState.arcPhase === "examination") {
     if ((run.messages.length + participantIndex) % 3 === 0) return "question";
     return participant.patience >= 65 ? "clarification" : "challenge";
@@ -427,6 +432,70 @@ function participantClosingPlan(
   };
 }
 
+function audiencePlan(
+  talk: TalkResponse,
+  run: TalkRunResponse,
+): TalkRunTurnPlan | undefined {
+  const cue = run.audienceCue;
+  if (!cue) return undefined;
+
+  const requestedParticipant = cue.targetParticipantIndex;
+  const participantIndex =
+    requestedParticipant !== undefined &&
+    requestedParticipant >= 0 &&
+    requestedParticipant < talk.participants.length &&
+    talk.participants[requestedParticipant]?.kind !== "unassigned"
+      ? requestedParticipant
+      : chooseParticipant(talk, run);
+  const participant = talk.participants[participantIndex];
+  const threadLabel = editorialLabel(cue.content);
+
+  if (cue.mode === "host" && talk.moderator.kind !== "none") {
+    const [minWords, maxWords] = wordRange(
+      "moderation",
+      talk.settings.pace,
+      remainingTimeRatio(run),
+      `${talk.id}:${run.messages.length}:audience:${cue.messageId}:host`,
+    );
+    return {
+      speakerType: "moderator",
+      speakerName: talk.moderator.name || "Moderator",
+      speakerRole: talk.moderator.role,
+      intent: "moderation",
+      targetParticipantIndex: participantIndex,
+      targetSpeakerName: participant.name,
+      threadLabel,
+      arcPhase: run.discussionState.arcPhase,
+      preparationMode: "reactive",
+      referenceStyle: "idea_first",
+      minWords,
+      maxWords: Math.min(maxWords, 60),
+      audienceCue: cue,
+    };
+  }
+
+  const [minWords, maxWords] = wordRange(
+    "answer",
+    talk.settings.pace,
+    remainingTimeRatio(run),
+    `${talk.id}:${run.messages.length}:audience:${cue.messageId}:${participantIndex}`,
+  );
+  return {
+    speakerType: "participant",
+    participantIndex,
+    speakerName: participant.name,
+    speakerRole: participant.role,
+    intent: "answer",
+    threadLabel,
+    arcPhase: run.discussionState.arcPhase,
+    preparationMode: "reactive",
+    referenceStyle: "implicit",
+    minWords,
+    maxWords,
+    audienceCue: cue,
+  };
+}
+
 export function chooseNextTurn(
   talk: TalkResponse,
   run: TalkRunResponse,
@@ -443,6 +512,9 @@ export function chooseNextTurn(
       ? moderatorPlan(talk, run, "closing")
       : undefined;
   }
+
+  const audienceTurn = audiencePlan(talk, run);
+  if (audienceTurn) return audienceTurn;
 
   if (shouldHostIntervene(talk, run)) {
     return moderatorPlan(

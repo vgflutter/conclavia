@@ -21,6 +21,7 @@ import {
   DEFAULT_STUDIO_THEME,
   isStudioThemeId,
 } from "@/lib/studio-themes";
+import { findStudioVoice } from "@/lib/liveavatar-catalog";
 
 type ValidationResult =
   | { success: true; data: TalkInput }
@@ -77,6 +78,29 @@ function optionalModelId(
   }
 
   return modelId;
+}
+
+function optionalVoiceId(
+  value: unknown,
+  sex: ParticipantSex,
+  field: string,
+  issues: string[],
+): string | undefined {
+  const voiceId = optionalString(value, field, issues);
+  if (!voiceId) return undefined;
+  const voice = findStudioVoice(voiceId);
+  if (!voice || voice.sex !== sex) {
+    issues.push(`${field} must be a supported voice matching the participant sex`);
+    return undefined;
+  }
+  return voice.id;
+}
+
+function voiceDelivery(value: unknown, field: string, issues: string[]) {
+  if (value === undefined || value === "natural") return "natural" as const;
+  if (value === "energetic" || value === "authoritative") return value;
+  issues.push(`${field} must be natural, energetic, or authoritative`);
+  return "natural" as const;
 }
 
 function score(value: unknown, field: string, issues: string[]): number {
@@ -188,9 +212,10 @@ function parseParticipant(
       ? optionalString(participant.role, `${field}.role`, issues) ?? ""
       : requiredString(participant.role, `${field}.role`, issues);
 
+  const sex = participantSex(participant.sex, index, `${field}.sex`, issues);
   return {
     kind,
-    sex: participantSex(participant.sex, index, `${field}.sex`, issues),
+    sex,
     name,
     role,
     perspectiveMode: kind === "ai" ? mode : "custom",
@@ -234,6 +259,18 @@ function parseParticipant(
         ? optionalModelId(
             participant.modelOverride,
             `${field}.modelOverride`,
+            issues,
+          )
+          : undefined,
+    voiceId:
+      kind === "ai"
+        ? optionalVoiceId(participant.voiceId, sex, `${field}.voiceId`, issues)
+        : undefined,
+    voiceDelivery:
+      kind === "ai"
+        ? voiceDelivery(
+            participant.voiceDelivery,
+            `${field}.voiceDelivery`,
             issues,
           )
         : undefined,
@@ -331,6 +368,18 @@ function parseModerator(
         ? optionalModelId(
             moderator.modelOverride,
             "moderator.modelOverride",
+            issues,
+          )
+          : undefined,
+    voiceId:
+      kind === "ai"
+        ? optionalVoiceId(moderator.voiceId, "male", "moderator.voiceId", issues)
+        : undefined,
+    voiceDelivery:
+      kind === "ai"
+        ? voiceDelivery(
+            moderator.voiceDelivery,
+            "moderator.voiceDelivery",
             issues,
           )
         : undefined,

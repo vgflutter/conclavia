@@ -22,6 +22,7 @@ import { serializeTalk } from "@/lib/serialize-talk";
 import { serializeTalkRun } from "@/lib/serialize-talk-run";
 import { getTalkRunBlockCode } from "@/lib/talk-run-compatibility";
 import { buildTurnPrompt } from "@/lib/talk-run-prompt";
+import { AudienceRoomModel } from "@/models/AudienceRoom";
 import { TalkModel } from "@/models/Talk";
 import {
   TalkRunModel,
@@ -148,6 +149,7 @@ function normalizePlan(plan: TalkRunTurnPlan): TalkRunTurnPlan {
     referenceStyle: plan.referenceStyle ?? "idea_first",
     minWords: plan.minWords,
     maxWords: plan.maxWords,
+    audienceCue: plan.audienceCue,
   };
 }
 
@@ -162,6 +164,22 @@ function planIsHuman(talk: TalkResponse, plan: TalkRunTurnPlan): boolean {
   return plan.speakerType === "moderator"
     ? talk.moderator.kind === "human"
     : talk.participants[plan.participantIndex ?? 0]?.kind === "human";
+}
+
+async function markAudienceCueUsed(
+  runId: Types.ObjectId,
+  plan: TalkRunTurnPlan,
+): Promise<void> {
+  if (!plan.audienceCue) return;
+  await AudienceRoomModel.updateOne(
+    { runId, "messages.id": plan.audienceCue.messageId },
+    {
+      $set: {
+        "messages.$.status": "used",
+        "messages.$.usedAt": new Date(),
+      },
+    },
+  ).exec();
 }
 
 function requestWasAborted(error: unknown, signal?: AbortSignal): boolean {
@@ -261,6 +279,7 @@ function projectedRunAfterTurn(
     origin,
     provider: origin === "ai" ? generation.provider : undefined,
     model: origin === "ai" ? generation.model : undefined,
+    audienceCue: plan.audienceCue,
     content,
     createdAt: now,
   };
@@ -273,6 +292,7 @@ function projectedRunAfterTurn(
     nextParticipantIndex: transition.nextParticipantIndex,
     estimatedAirtimeSeconds: transition.estimatedAirtimeSeconds,
     activeTurn: undefined,
+    audienceCue: undefined,
     hasPreparedTurn: false,
     discussionState,
     messages: [...run.messages, message],
@@ -584,6 +604,7 @@ export async function submitHumanTalkRunTurn(
             wordCount,
             estimatedAirtimeSeconds: airtime,
             origin: "human",
+            audienceCue: plan.audienceCue,
             content: input.content,
             createdAt: new Date(),
           },
@@ -602,11 +623,13 @@ export async function submitHumanTalkRunTurn(
           activeTurn: 1,
           preparedTurn: 1,
           error: 1,
+          ...(plan.audienceCue ? { audienceCue: 1 } : {}),
         },
       },
       { new: true },
     ).exec();
     if (!saved) throw new Error("Talk run disappeared while saving the human turn");
+    await markAudienceCueUsed(claimed._id, plan);
     return serializeTalkRun(saved);
   } catch (error) {
     if (error instanceof AdvanceTalkRunError) {
@@ -707,6 +730,7 @@ export async function advanceTalkRun(
     };
 
     const storedPrepared =
+      !run.audienceCue &&
       claimed.preparedTurn?.basedOnSequence === claimed.messages.length
         ? claimed.preparedTurn
         : undefined;
@@ -767,11 +791,14 @@ export async function advanceTalkRun(
     let preparationPromise:
       | Promise<TalkRunPreparedTurnRecord | undefined>
       | undefined;
+    const preparationController = new AbortController();
+    const preparationSignal = options.signal
+      ? AbortSignal.any([options.signal, preparationController.signal])
+      : preparationController.signal;
     const startPreparation = () => {
       if (
         preparationPromise ||
         options.prepareNext !== true ||
-        editorialReviewNeeded ||
         plan.intent === "closing"
       ) {
         return;
@@ -784,16 +811,17 @@ export async function advanceTalkRun(
         streamedContent.trim(),
         model,
         hooks,
-        options.signal,
+        preparationSignal,
       ).catch((error: unknown) => {
+        if (preparationController.signal.aborted) return undefined;
         const message = error instanceof Error ? error.message : "unknown error";
         console.error("Speculative turn preparation failed", message);
         return undefined;
       });
     };
     const preparationThreshold = Math.max(
-      10,
-      Math.min(24, Math.round(plan.minWords * 0.45)),
+      8,
+      Math.min(16, Math.round(plan.minWords * 0.3)),
     );
     const emitDelta = async (delta: string) => {
       streamedContent += delta;
@@ -829,7 +857,7 @@ export async function advanceTalkRun(
       );
     }
 
-    if (!preparationPromise && !editorialReviewNeeded) startPreparation();
+    if (!preparationPromise) startPreparation();
 
     let projected = projectedRunAfterTurn(
       talk,
@@ -876,23 +904,9 @@ export async function advanceTalkRun(
         : undefined,
     };
 
-    if (
-      editorialReviewNeeded &&
-      options.prepareNext === true &&
-      !transition.completed
-    ) {
-      preparationPromise = prepareTurnFromProjectedRun(
-        talk,
-        projected,
-        hooks,
-        false,
-        true,
-        options.signal,
-      ).catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : "unknown error";
-        console.error("Post-review turn preparation failed", message);
-        return undefined;
-      });
+    if (transition.completed || transition.phase === "closing") {
+      preparationController.abort();
+      preparationPromise = undefined;
     }
     const wordCount = generation.content.split(/\s+/u).filter(Boolean).length;
     const estimatedAirtime = estimateAirtimeSeconds(wordCount, plan.speakerType);
@@ -922,6 +936,7 @@ export async function advanceTalkRun(
             content: generation.content,
             inputTokens: generation.inputTokens,
             outputTokens: generation.outputTokens,
+            audienceCue: plan.audienceCue,
             createdAt: new Date(),
           },
         },
@@ -945,6 +960,7 @@ export async function advanceTalkRun(
           ...(waitingForPreparation && !transition.completed
             ? {}
             : { generationStartedAt: 1 }),
+          ...(plan.audienceCue ? { audienceCue: 1 } : {}),
         },
       },
       { new: true },
@@ -953,6 +969,7 @@ export async function advanceTalkRun(
     if (!savedCurrent) {
       throw new Error("Talk run disappeared while saving the turn");
     }
+    await markAudienceCueUsed(claimed._id, plan);
     await hooks.onTurnSaved?.(serializeTalkRun(savedCurrent));
 
     const prepared = transition.completed

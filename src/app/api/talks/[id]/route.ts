@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import { serializeTalk } from "@/lib/serialize-talk";
 import { validateTalkInput } from "@/lib/talk-validation";
+import { AudienceRoomModel } from "@/models/AudienceRoom";
 import { TalkModel } from "@/models/Talk";
 import { TalkRunModel } from "@/models/TalkRun";
 
@@ -111,6 +112,8 @@ export async function DELETE(_request: Request, context: RouteContext) {
       return NextResponse.json({ error: "Talk not found" }, { status: 404 });
     }
 
+    const runIds = await TalkRunModel.distinct("_id", { talkId: talk._id }).exec();
+    await AudienceRoomModel.deleteMany({ runId: { $in: runIds } }).exec();
     const deletedRuns = await TalkRunModel.deleteMany({ talkId: talk._id }).exec();
 
     return NextResponse.json({

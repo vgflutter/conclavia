@@ -13,15 +13,15 @@ Conclavia is designed to reproduce a live current-affairs programme: five in-stu
 The main automatic broadcast warms the complete AI cast in parallel before the first cue, composites every synchronized video stream into the five-seat studio, and sends each generated intervention to the correct avatar. LiveAvatar supplies the voice, motion, expressions, and lip sync; OpenAI or Gemini supplies only the debate content and editorial direction.
 
 <p align="center">
-  <img src="docs/images/one-piece-close-up.png" alt="Conclavia close-up preview for a One Piece studio debate" width="1086" />
+  <img src="docs/images/after-hours-live-punch-in.png" alt="Conclavia After Hours live punch-in for a One Piece studio debate" width="1086" />
   <br />
-  <sub>A real LiveAvatar frame on air: synchronized voice, motion, lip sync, clean keying, and automatic close-up direction.</sub>
+  <sub>A real English LiveAvatar frame captured on air in After Hours: synchronized voice, lip sync, GPU keying, captions and a tight automatic punch-in.</sub>
 </p>
 
 <p align="center">
-  <img src="docs/images/one-piece-five-guests.png" alt="Five casual LiveAvatar guests configured to debate whether One Piece is the best anime ever" width="1086" />
+  <img src="docs/images/after-hours-five-guests.png" alt="Five casual guests in the Conclavia After Hours podcast set" width="1086" />
   <br />
-  <sub>The five-seat Broadcast Panel preview. The layered foreground desk places every guest inside the set instead of over it.</sub>
+  <sub>The five-seat After Hours preview: a cinematic creator-podcast lounge with depth staging, individual microphones and a smoked-glass foreground desk.</sub>
 </p>
 
 ## How the MVP works
@@ -35,6 +35,7 @@ The main automatic broadcast warms the complete AI cast in parallel before the f
 7. Every completed message, its conversational intent, and the updated editorial state are persisted in MongoDB.
 8. A person selected by the director receives a persistent on-air input desk; their intervention then affects the same memories, conflicts, and conclusion as an AI contribution.
 9. The main live action connects the complete AI cast before the first cue, routes every contribution to the correct synchronized video and voice stream, and exposes one stop action for the complete broadcast.
+10. During a YouTube stream, the audience desk receives public chat messages and lets the control room show one on air, hand it to the host, direct it to a guest, or use it as an unattributed editorial prompt.
 
 Creating the persisted run does not call a provider. Starting the studio enables the broadcast and opens the declared AI cast sessions together. This trades a single controlled startup for immediate later handoffs, live listening motion from every connected guest, and no per-speaker connection pause. Each generated intervention is a separate LLM request, while selected editorial checkpoints make an additional structured-output request. Editorial checkpoints and preparation of the following turn continue off-air while the current guest speaks.
 
@@ -47,7 +48,7 @@ Creating the persisted run does not call a provider. Starting the studio enables
 - Generate a coherent or surprising cast from the central question, then edit or regenerate any guest.
 - Choose a custom, automatic, or random perspective and keep each AI guest’s goals, boundaries, style, traits, model, and identity stable.
 - Add an optional AI or human host with an independent editorial line.
-- Choose Italian or English, duration, pace, studio theme, and a constrained OpenAI/Gemini model catalog.
+- Choose Italian or English, duration, pace, studio theme, and a constrained OpenAI/Gemini model catalog. New episodes start from the cinematic After Hours podcast lounge rather than a conventional TV set.
 - Derive `draft` or `ready` automatically and validate data both server-side and at the Mongoose boundary.
 
 ### Conversation engine
@@ -61,16 +62,19 @@ Creating the persisted run does not call a provider. Starting the studio enables
 
 ### Live studio and broadcast output
 
-- Present the talk in a responsive 16:9 five-seat studio with six selectable visual themes, including a layered broadcast set built for recording.
+- Present the talk in a responsive 16:9 five-seat studio with ten selectable visual themes, explicitly grouped into **Pop / creator** and **Editorial / authoritative** families. After Hours is the flagship creator set; Electric Commons, Soft Social and Broadcast Panel provide the more controlled editorial direction.
 - Connect the complete LiveAvatar FULL cast in parallel and use synchronized video, neural voice, expressions, and lip sync—without browser TTS or a static broadcast fallback.
-- Keep stable, language-appropriate avatars and voices; respect each configured guest’s sex.
-- Pair every public avatar with its matching public voice, use Eleven Multilingual v2 for Italian, Eleven Flash 2.5 for English, and run at LiveAvatar’s supported 1.2× speed.
+- Keep stable, language-appropriate avatars and independently cast voices; respect each configured guest’s sex and let the operator audition every shortlisted voice before going live.
+- Offer natural, energetic, and authoritative delivery profiles. Live speech uses Eleven Flash 2.5 with latency-heavy style exaggeration and speaker boost disabled; pace and delivery determine a bounded per-speaker speed instead of forcing every voice to 1.2×.
 - Refresh a guest session before it can expire during an intervention; an idle expired session reconnects on its next assignment without stopping the studio.
-- Direct timed close-ups, brief adjacent two-shots, listener reactions, and contextual wide cuts inside the same intervention; manual overrides remain in the control room.
-- Request LiveAvatar’s `very_high` 1080p H.264 stream and scale WebGL compositing dynamically up to 1920×1080 for the active close-up while keeping inactive seats lightweight.
+- Adapt the camera grammar to the selected family. Pop direction uses earlier punch-ins, lateral drifts and faster reaction coverage; editorial direction holds shots longer, reduces movement and gives two-shots and wide cuts more breathing room. Manual overrides remain in the control room.
+- Request LiveAvatar’s `very_high` 1080p H.264 stream when the account supports it, fall back explicitly to `high` on plans that reject 1080p, and scale WebGL compositing dynamically for the active close-up while keeping inactive seats lightweight.
+- Unlock a shared Web Audio programme bus from the original **Go live** gesture, route every LiveAvatar stream through its own high-pass filter, corrective EQ, compressor and level trim, then protect the shared master with a limiter. Raw video elements stay muted so duplicate audio can never leak into the mix.
+- Measure command-to-voice startup and the silence between consecutive speakers inside the control room, so perceived latency is observable instead of guessed.
 - Show `On air` only after media is active, expose one immediate stop action, and keep technical telemetry collapsed until needed.
 - Provide a separate clean `/broadcast` output with a title slate, animated lower thirds, timed caption chunks, editorial stingers, and a final-result card for OBS, YouTube, or a projector.
 - Support one local human camera after explicit browser permission while credentials, avatar allow-lists, and timeouts remain server-side.
+- Connect a YouTube live chat to the current run, optionally require manual approval, and persist every selected audience cue alongside the resulting intervention.
 
 ## UX principles
 
@@ -116,7 +120,11 @@ Creating the persisted run does not call a provider. Starting the studio enables
 | `POST` | `/api/runs/[id]/next` | Generate and persist exactly one intervention |
 | `POST` | `/api/runs/[id]/next/stream` | Stream, then persist, exactly one intervention |
 | `POST` | `/api/runs/[id]/human-turn` | Persist the human contribution currently requested by the director |
+| `GET/POST/PATCH/DELETE` | `/api/runs/[id]/audience` | Read, connect, configure, or disconnect the YouTube audience desk |
+| `POST` | `/api/runs/[id]/audience/sync` | Fetch the next YouTube live-chat page at the provider’s requested interval |
+| `PATCH` | `/api/runs/[id]/audience/messages/[messageId]` | Approve, discard, show, or route one audience message |
 | `GET` | `/api/liveavatar/status` | Read sanitized configuration, credit, and timeout status |
+| `GET` | `/api/liveavatar/voices/[id]/preview` | Stream an allow-listed voice audition sample without exposing provider credentials |
 | `POST` | `/api/liveavatar/sessions` | Mint a short-lived allow-listed LiveAvatar FULL session token |
 | `DELETE` | `/api/liveavatar/sessions/[id]` | Stop the paid LiveAvatar session server-side |
 
@@ -127,6 +135,7 @@ Creating the persisted run does not call a provider. Starting the studio enables
 - A reachable MongoDB instance
 - OpenAI and/or Gemini credentials for AI turns
 - A LiveAvatar API key and a plan with enough concurrent sessions for the configured AI cast
+- An optional YouTube Data API key for live audience interaction
 
 ## Installation
 
@@ -178,6 +187,25 @@ GEMINI_API_KEY=your_gemini_api_key
 
 These are server-only variables: do not prefix them with `NEXT_PUBLIC_`. Provider calls are made only from Node.js Route Handlers and the keys are never returned to the browser.
 
+## YouTube live audience configuration
+
+Enable **YouTube Data API v3** in a Google Cloud project and add a restricted server key:
+
+```dotenv
+YOUTUBE_API_KEY=your_youtube_data_api_key
+```
+
+This first audience integration is read-only and therefore does not ask the channel owner to complete OAuth. In the control-room view, open **Live audience desk** and paste the public YouTube live URL or its 11-character video ID. Conclavia resolves the active chat, follows the continuation token and provider polling interval, and stores at most the latest 200 messages with the run.
+
+Manual review is disabled by default. When enabled, incoming messages remain pending until the operator approves or discards them. Without it, messages go straight to the control-room queue, but nothing reaches the programme until the operator chooses an action:
+
+- **Show on air** displays the viewer and message for twelve seconds without changing the conversation.
+- **Give to host** makes the next host intervention attribute the message and put it to the selected—or automatically chosen—guest.
+- **Ask guest** makes the selected guest answer it on the next useful turn.
+- **Use as prompt** injects only the editorial substance and never identifies the viewer on air.
+
+Selected messages are quoted to the LLM as untrusted programme material rather than instructions, persisted on the generated intervention, and rendered in the clean broadcast output. The audience card and broadcast output synchronize through MongoDB, so OBS can remain open in a separate window. See the official [YouTube live-chat resource](https://developers.google.com/youtube/v3/live/docs/liveChatMessages) and [`liveChatMessages.list`](https://developers.google.com/youtube/v3/live/docs/liveChatMessages/list) documentation.
+
 The supported model catalog is intentionally explicit:
 
 | Provider | Model | Stored identifier |
@@ -195,6 +223,7 @@ LiveAvatar is required for the broadcast. Static portraits are used only in the 
 LIVEAVATAR_API_KEY=your_liveavatar_api_key
 LIVEAVATAR_PRODUCTION_ENABLED=true
 LIVEAVATAR_MAX_SESSION_SECONDS=300
+LIVEAVATAR_VIDEO_QUALITY=auto
 
 # Optional purchased custom cast override (repeat for seats 2–5)
 LIVEAVATAR_SEAT_1_AVATAR_ID=your_custom_avatar_id
@@ -206,9 +235,13 @@ The API key is read only by server Route Handlers. The browser receives short-li
 
 The **Go live** action opens a clear cost preflight and then connects all configured AI presenters concurrently before the first cue. Later turns therefore reuse an already-moving, already-audible speaker rather than opening a session between contributions. Generated text is sent as `avatar.speak_text` over LiveAvatar’s official `agent-control` channel, so LiveAvatar produces the voice and matching lip-synced video. There is no browser voice and no separate OpenAI TTS fallback. The UI declares that the voices are AI-generated.
 
-The server restricts sessions to a curated public avatar catalog, pairs each face with its corresponding public voice, enforces the configured participant sex, requests LiveAvatar’s `very_high` 1080p H.264 output, and configures the voice pipeline for the talk language. Purchased custom avatars can replace any of the five seats or the moderator entirely through server-only environment variables; incomplete or sex-inconsistent overrides fail closed. Italian uses Eleven Multilingual v2 for pronunciation quality, English uses the lower-latency Eleven Flash 2.5 model, and both run at the provider’s supported 1.2× maximum with speaker enhancement enabled.
+The server restricts sessions to curated official green-screen Studio avatars and a deliberately short voice catalog. Avatar and voice are independent: **Auto** assigns distinct language- and sex-compatible voices, while the participant and host forms expose a real provider preview plus an explicit selection. Purchased custom avatars can replace any seat through server-only environment variables; incomplete or sex-inconsistent overrides fail closed. Live delivery uses Eleven Flash 2.5 for Italian and English, `style: 0`, no speaker boost, and bounded profile-specific speed. This materially reduces handoff latency while the audition step catches any voice whose accent or character is wrong for the programme.
 
-Green backgrounds are removed by a two-pass GPU compositor. It samples neighbouring pixels to refine hair and shoulder edges, suppresses reflected green, applies a restrained broadcast grade, and reuses only the semi-transparent edge matte from the previous video frame to prevent flicker. Processing resolution follows the actual shot: `640×360` for background guests in a panel, `960×540` for the active wide-shot speaker, `1280×720` per guest in a two-shot, and `1920×1080` for a close-up. The raw media elements retain their real rendered dimensions so LiveKit adaptive streaming does not suspend an avatar that is being composited. A keep-alive protects silent guests while another participant speaks; sessions nearing their per-session limit are recycled safely, and every active stream closes when the talk ends or the operator stops it.
+`LIVEAVATAR_VIDEO_QUALITY=auto` first requests `very_high` and retries at `high` only when LiveAvatar returns its specific 1080p plan restriction. Set it explicitly to `high` when startup speed matters more than the initial capability check, or to `very_high` when the account must fail rather than downgrade. At the time of the latest verification, the Starter account delivered a real `1280×720` stream after rejecting 1080p; Business or Enterprise is required by the current API for that higher session quality.
+
+Green backgrounds are removed by a two-pass GPU compositor. It samples neighbouring pixels to refine hair and shoulder edges, suppresses reflected green, applies a restrained broadcast grade, and reuses only the semi-transparent edge matte from the previous video frame to prevent flicker. Processing resolution follows the actual shot: `640×360` for background guests in a panel, `960×540` for the active wide-shot speaker, `1280×720` per guest in a two-shot, and up to `1920×1080` for a close-up. The raw media elements retain their real rendered dimensions so LiveKit adaptive streaming does not suspend an avatar that is being composited. A keep-alive protects silent guests while another participant speaks; sessions nearing their per-session limit are recycled safely, and every active stream closes when the talk ends or the operator stops it.
+
+Live audio never depends on the media element’s delayed autoplay attempt. The trusted confirmation click creates and resumes one 48 kHz programme `AudioContext`. Each incoming voice receives a sex- and delivery-aware channel strip—high-pass filtering, low-mid cleanup, presence EQ, conservative compression, and level trim—before a fast master limiter. The visible **Enable audio** action remains only as a browser-policy recovery path. The collapsed LiveAvatar panel reports the latest provider voice-start delay and speaker-to-speaker handoff gap during the programme.
 
 LiveAvatar FULL currently costs 2 credits per active avatar minute. Five AI guests in a five-minute studio therefore have a maximum estimate of 50 credits. An AI moderator also consumes one concurrent session; the total number of AI guests plus an AI moderator cannot exceed five on the current plan. Human seats do not consume LiveAvatar credits.
 
@@ -216,9 +249,11 @@ If the account has **Allow Overage** enabled, a zero plan balance is not treated
 
 ## Seated composition and virtual cameras
 
-The production set treats each presenter as a chest-up source, which matches LiveAvatar’s real capture model. The Broadcast Panel background contains five aligned, low-backed chairs; every avatar stays attached to its physical seat, and a second copy of the foreground desk masks the lower body. This creates a coherent seated panel without stretching, moving, or fabricating a presenter’s missing legs.
+The production sets treat each presenter as a chest-up source, which matches LiveAvatar’s real capture model. The flagship After Hours scene places the cast on a subtle depth arc behind a procedural smoked-glass podcast desk with individual microphones and contact lighting. Color Block Club, Electric Commons, Soft Social and the legacy Broadcast Panel use calibrated foreground furniture for the same lower-body occlusion. This creates a coherent panel without stretching or fabricating a presenter’s missing legs. After Hours is the default for every new episode; the older broadcast look remains available only as an explicit stylistic choice.
 
-Camera direction transforms the complete scene—set, chairs, presenters, lighting, and foreground desk—as one virtual camera. A full panel establishes the room and a 1.58× close-up puts the current speaker near a rule-of-thirds point. The automatic director now changes coverage during longer contributions: it begins on the speaker, inserts a short adjacent two-shot when useful, cuts to a connected listener’s natural reaction, and returns to the speaker without interrupting the audio. A contextual wide cut adds visual breathing room when no reaction is available. Shot-aware canvas resolution preserves the active guest instead of enlarging the panel render, while restrained depth-of-field makes every cut read clearly. The AI moderator also has a keyed on-camera close-up instead of being voice-only. Animated lower thirds and timed caption chunks stay inside the 16:9 safe area, and editorial phase changes receive a short chapter stinger.
+Camera direction transforms the complete scene—set, presenters, lighting, microphones and foreground desk—as one virtual camera. A full panel establishes the room; `1.52×`, `1.68×` and `1.90×` close-ups let the director move from a relaxed portrait to a deliberate punch-in; and an adjacent two-shot supports direct exchanges. Every camera cue may stay locked, push in slowly or drift laterally. Cuts are instantaneous, with only a two-frame exposure bridge. During one contribution the director can begin loose, tighten on the key claim, insert a two-shot or listener reaction, take a wide breath, and return without interrupting the audio. Shot-aware canvas resolution preserves the active guest instead of enlarging the panel render, while restrained depth-of-field makes every cut read clearly. The AI moderator has a separate keyed host identity and on-camera close-up instead of being voice-only. Animated lower thirds now include an on-air voice meter; timed caption chunks, title and chapter stingers, and the final result card stay inside the 16:9 safe area.
+
+The public green-screen catalog currently exposes five distinct female Studio identities but only three distinct male Studio identities suitable for this shared-set compositor. Additional male seats therefore use alternate official outfits rather than pretending to be new people. A production needing five distinct male presenters should supply purchased custom green-screen avatars through the seat overrides.
 
 LiveAvatar’s official [custom avatar capture guide](https://help.heygen.com/en/articles/9612935-liveavatar-custom-liveavatar-creation-guide) requires chest-up or head-and-shoulders footage and explicitly does not support full-body recordings. Buying a higher plan therefore does not, by itself, create a genuinely seated full-body avatar. If branded custom presenters become important, record each performer while physically seated in a low chair, with restrained posture and a static or green background: their real listening and speaking body language will then match this set. The provider’s [FAQ](https://help.heygen.com/en/articles/12758866-liveavatar-faq) also notes that gestures are learned from the source footage rather than directed dynamically.
 
@@ -236,7 +271,7 @@ Recommended OBS setup for an initial 1080p production:
 4. Stream to YouTube over RTMPS, or record locally to MKV and remux to MP4 after the show. A local recording is strongly recommended even during a live stream.
 5. Run one private/unlisted rehearsal and verify the YouTube stream-health panel before scheduling a public broadcast.
 
-When a run completes, the control room exposes **Download 4K edit plan**. The JSON manifest is a deterministic frame-level edit decision list at `3840×2160`, 30 fps, Rec.709 and 48 kHz. Every segment contains its exact frame range, speaker, target, intent, caption, selected shot, optional two-shot companion, and optional reaction cue. It is designed as the stable input for a future HyperFrames/FFmpeg or Avatar IV master-render pipeline; it does not pretend that a browser recording is already a native 4K avatar render.
+When a run completes, the control room exposes **Download 4K edit plan**. Schema v2 is a deterministic frame-level edit decision list at `3840×2160`, 30 fps, Rec.709 and 48 kHz, with a `-14 LUFS` programme target and `-1 dBTP` ceiling. Every intervention can expand into multiple coverage segments with exact frame ranges, camera IDs, speaker, target, intent, caption, close-up framing, camera motion, adjacent two-shot companion, reaction cue, and hard-cut transition. It is designed as the stable input for a future HyperFrames/FFmpeg or Avatar IV master-render pipeline; it does not pretend that a browser recording is already a native 4K avatar render.
 
 These values follow YouTube’s current [live encoder guidance](https://support.google.com/youtube/answer/2853702) and [upload encoding recommendations](https://support.google.com/youtube/answer/1722171). Increase resolution or bitrate only after measuring the complete machine, network, and five-avatar GPU load.
 
@@ -253,9 +288,9 @@ npm start
 
 ## Verified baseline
 
-The current MVP has been checked locally with strict linting and a production build. A MongoDB smoke test creates, reads, deletes, and confirms removal of a temporary talk; its principal pages have also been rendered at 390, 768, and 1440 pixels without horizontal overflow.
+The current MVP is checked locally with strict TypeScript, linting, and a production build. Runtime QA uses only temporary records in the `conclave` database; every QA talk, run, and audience room is removed afterward without touching the user’s saved episode or any other MongoDB database.
 
-The latest real integration checks used the English question **“Is One Piece the best anime ever?”**. A five-guest pacing run completed five interventions in 96 seconds with 84 seconds of estimated speech; speculative generation reduced the longest measured off-air gap to 6.6 seconds, and all five paid sessions closed. A separate Chrome media run exposed three simultaneous live audio tracks, three H.264 video tracks, and three active WebGL canvases; it completed 59 seconds of estimated speech in 67 seconds and produced the live close-up shown above. Every temporary talk and run was deleted afterward and MongoDB was confirmed empty. These are real integration checks, not a committed automated test suite.
+The latest real integration checks used the English question **“Is One Piece the best anime ever?”**. LiveAvatar supplied real H.264 video and audio for five independently warmed guests. In the After Hours run, the same intervention was captured first as a loose lateral portrait and then as a tight moving punch-in while lip sync continued; all five provider sessions subsequently returned a successful stop response. Separate offline captures verified the full panel, close-up and two-shot compositions, desk occlusion, microphone visibility, labels, eye line and the 16:9 safe area. The temporary talk and its run were deleted after verification. These are real integration checks, not a committed automated test suite.
 
 ## Project structure
 
@@ -269,7 +304,7 @@ src/
 └── types/               Shared strict TypeScript types
 ```
 
-The browser only talks to Next.js Route Handlers. MongoDB credentials and provider keys remain server-side; each runner step validates the saved configuration, calls the selected provider, and persists the result before responding.
+The browser only talks to Next.js Route Handlers. MongoDB credentials and provider keys remain server-side; each runner step validates the saved configuration, calls the selected provider, and persists the result before responding. YouTube messages live in a separate `AudienceRoom` collection keyed by run, while the selected cue is copied into the run and final transcript for durable editorial history.
 
 ## Talk configuration
 
@@ -318,6 +353,7 @@ The first runner supports:
 - OpenAI Responses streaming and schema-constrained cast generation
 - Gemini `streamGenerateContent` and schema-constrained cast generation
 - a maximum of 50 participant turns per session
+- a YouTube audience desk with optional manual approval and director-controlled routing to the host or any guest
 - recent-transcript prompting plus a compact persisted discussion state and per-guest memory
 - live text streaming, durable progress, transcript, failure state, retry, and token usage
 - a final conclusion card with answer, agreements, disagreements, conditions, and unresolved questions

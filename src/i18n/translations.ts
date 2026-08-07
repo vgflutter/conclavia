@@ -129,6 +129,16 @@ const english = {
   participantMale: "Man",
   participantSexHelp:
     "Used consistently by cast generation, prompts, studio imagery, and the real HeyGen avatar.",
+  voiceCasting: "Voice casting",
+  voiceCastingHelp:
+    "Choose and audition the voice before going live. Auto keeps the setup quick and assigns a different compatible voice to each AI guest.",
+  onAirVoice: "On-air voice",
+  voiceAutomatic: "Auto — {voice}",
+  voiceDelivery: "Delivery",
+  voiceNatural: "Natural conversation",
+  voiceEnergetic: "Energetic and quick",
+  voiceAuthoritative: "Calm authority",
+  voicePreview: "Preview: {voice}",
   participantNamePlaceholder: "Guest name or on-air identity",
   participantRolePlaceholder: "Politician, journalist, expert, citizen…",
   humanBrief: "Editorial brief",
@@ -172,9 +182,33 @@ const english = {
   studioTheme: "Studio scenery",
   studioThemeHelp:
     "Choose the atmosphere of the programme. It changes the visual set, not the editorial behavior of guests or host.",
+  studioThemeCreatorGroup: "Pop / creator",
+  studioThemeCreatorGroupHelp:
+    "Youthful sets with colour, energy and a faster visual rhythm for entertainment and internet culture.",
+  studioThemeEditorialGroup: "Editorial / authoritative",
+  studioThemeEditorialGroupHelp:
+    "Controlled, credible studios with longer shots for current affairs, politics and expert discussion.",
+  studioDirectionCreator: "Pop direction",
+  studioDirectionEditorial: "Editorial direction",
+  studioThemeAfterHours: "After Hours",
+  studioThemeAfterHoursHelp:
+    "Flagship night podcast lounge with cinematic depth, warm practical lights and a curved glass desk built for dynamic close-ups.",
+  studioThemeColorBlock: "Color Block Club",
+  studioThemeColorBlockHelp:
+    "Bright creator loft with translucent furniture, bold colour and daylight. The new recommended default for culture, entertainment and social formats.",
+  studioThemeElectric: "Electric Commons",
+  studioThemeElectricHelp:
+    "A dark but colourful independent-podcast set for music, internet culture and sharper evening conversations.",
+  studioThemeSoftSocial: "Soft Social",
+  studioThemeSoftSocialHelp:
+    "Warm minimal design studio for relaxed, intelligent and lifestyle-led discussions.",
   studioThemeBroadcast: "Broadcast panel",
   studioThemeBroadcastHelp:
     "Premium five-seat set with visible low-backed chairs and a layered desk, designed for clean 16:9 recording and live streaming.",
+  studioThemePremium: "Production ready",
+  studioThemeCreativePreview: "Creative set",
+  studioThemeProductionNote:
+    "After Hours, Color Block Club, Electric Commons, Soft Social and Broadcast panel use calibrated foreground furniture that seats every avatar inside the scene.",
   studioThemeGarage: "Pop garage",
   studioThemeGarageHelp: "Bright, irreverent and DIY for creators, campus culture and fast conversations.",
   studioThemePulp: "Pulp podcast",
@@ -353,7 +387,7 @@ const english = {
   runnerConfirmTitle: "Ready to go live?",
   runnerConfirmStart: "Go live",
   runnerAutoConfirm:
-    "The director will run for up to {duration} minutes. Up to {avatars} LiveAvatars connect only when called on air. Estimated maximum: about {credits} credits, plus LLM calls.",
+    "The director will run for up to {duration} minutes. The complete cast of up to {avatars} LiveAvatars connects before the first cue for immediate handoffs. Estimated maximum: about {credits} credits, plus LLM calls.",
   runnerPauseHelp:
     "While the current LiveAvatar speaks, the director prepares what comes next. Stop closes every video session immediately.",
   runnerAudioHelp:
@@ -384,6 +418,42 @@ const english = {
     "The session is ready. Generate the first intervention when you want to start using the configured provider.",
   runnerTokenUsage: "Tokens — input: {input}, output: {output}",
   runnerGeneratingFor: "Generating the intervention for {name}…",
+  audienceDeskTitle: "Live audience desk",
+  audienceDeskHelp:
+    "Select what reaches the programme: show a message, hand it to the host, direct it to a guest, or use it as an editorial prompt.",
+  audienceConnected: "Live chat connected",
+  audienceNewCount: "{count} to review",
+  audienceNotConfigured: "YouTube audience access is not configured",
+  audienceNotConfiguredHelp:
+    "Add YOUTUBE_API_KEY to the server environment, then restart the development server.",
+  audienceSource: "YouTube live URL or video ID",
+  audienceSourcePlaceholder: "https://www.youtube.com/watch?v=…",
+  audienceManualReview: "Manual review",
+  audienceManualReviewHelp:
+    "Optional. When enabled, every new message must be approved before the control room can use it.",
+  audienceConnect: "Connect live chat",
+  audienceConnecting: "Connecting…",
+  audienceConnectError: "The YouTube live chat could not be connected.",
+  audienceDisconnect: "Disconnect",
+  audienceWaiting: "Waiting for new YouTube live messages…",
+  audienceModerator: "Moderator",
+  audienceMember: "Member",
+  audienceApprove: "Approve",
+  audienceReject: "Discard",
+  audiencePutOnAir: "Show on air",
+  audienceSendToHost: "Give to host",
+  audienceSendToGuest: "Ask guest",
+  audienceUseAsPrompt: "Use as prompt",
+  audienceTarget: "Audience message recipient",
+  audienceTargetAutomatic: "Director chooses the guest",
+  audienceActionError: "The audience action could not be completed.",
+  audienceOnAir: "From the audience",
+  audienceStatus_pending: "Review",
+  audienceStatus_available: "New",
+  audienceStatus_on_air: "On air",
+  audienceStatus_queued: "Queued",
+  audienceStatus_used: "Used",
+  audienceStatus_rejected: "Discarded",
   studioStatusError: "LiveAvatar status is temporarily unavailable.",
   studioPaidConfirm:
     "Start the paid live studio? Audio will be enabled and every LiveAvatar session will close when the broadcast ends or you stop it.",
@@ -423,7 +493,7 @@ const english = {
   studioAddressing: "To {name}",
   studioNextChapter: "Next chapter",
   studioDirectorHelp:
-    "Auto directs timed close-ups, short two-shots, reaction cuts and editorial wide shots while the speaker continues uninterrupted.",
+    "Live direction changes framing inside the same answer: cinematic push-ins, punch-ins, two-shots, reactions and breathing wide shots.",
   studioLiveSystem: "LiveAvatar cast",
   studioLiveSystemHelp:
     "The complete AI cast connects in parallel before the first cue, so every later handoff is immediate and every guest remains visibly present.",
@@ -441,6 +511,8 @@ const english = {
   studioStartCamera: "Bring the first human guest on camera",
   studioStopCamera: "Turn off the human guest camera",
   studioCredits: "{credits} credits",
+  studioVoiceStartup: "voice startup",
+  studioVoiceHandoff: "speaker handoff",
   studioEnableAudio: "Enable audio",
   studioStopLive: "Stop broadcast",
   studioVolume: "Volume",
@@ -587,6 +659,16 @@ const italian: Record<TranslationKey, string> = {
   participantMale: "Uomo",
   participantSexHelp:
     "Viene rispettato nella generazione del cast, nei prompt, nell’immagine in studio e nell’avatar HeyGen reale.",
+  voiceCasting: "Casting della voce",
+  voiceCastingHelp:
+    "Scegli e ascolta la voce prima della diretta. Auto mantiene la configurazione rapida e assegna una voce compatibile diversa a ogni ospite AI.",
+  onAirVoice: "Voce in onda",
+  voiceAutomatic: "Auto — {voice}",
+  voiceDelivery: "Interpretazione",
+  voiceNatural: "Conversazione naturale",
+  voiceEnergetic: "Energica e rapida",
+  voiceAuthoritative: "Autorevole e calma",
+  voicePreview: "Ascolta: {voice}",
   participantNamePlaceholder: "Nome dell’ospite o identità in onda",
   participantRolePlaceholder: "Politico, giornalista, esperto, cittadino…",
   humanBrief: "Brief editoriale",
@@ -630,9 +712,33 @@ const italian: Record<TranslationKey, string> = {
   studioTheme: "Scenografia dello studio",
   studioThemeHelp:
     "Scegli l’atmosfera della trasmissione. Cambia il set visivo, non il comportamento editoriale di ospiti o conduttore.",
+  studioThemeCreatorGroup: "Pop / creator",
+  studioThemeCreatorGroupHelp:
+    "Set giovani, colorati e con un ritmo visivo più rapido per intrattenimento e cultura internet.",
+  studioThemeEditorialGroup: "Editoriale / autorevole",
+  studioThemeEditorialGroupHelp:
+    "Studi controllati e credibili, con inquadrature più lunghe per attualità, politica e confronto tra esperti.",
+  studioDirectionCreator: "Regia pop",
+  studioDirectionEditorial: "Regia editoriale",
+  studioThemeAfterHours: "After Hours",
+  studioThemeAfterHoursHelp:
+    "Lounge notturna flagship con profondità cinematografica, luci calde e banco curvo in vetro progettato per primi piani dinamici.",
+  studioThemeColorBlock: "Color Block Club",
+  studioThemeColorBlockHelp:
+    "Loft luminoso da creator con arredi traslucidi, colori decisi e luce naturale. È il nuovo default consigliato per cultura, intrattenimento e format social.",
+  studioThemeElectric: "Electric Commons",
+  studioThemeElectricHelp:
+    "Set scuro ma colorato da podcast indipendente, pensato per musica, cultura internet e confronti serali più taglienti.",
+  studioThemeSoftSocial: "Soft Social",
+  studioThemeSoftSocialHelp:
+    "Studio minimal caldo per conversazioni rilassate, intelligenti e orientate al lifestyle.",
   studioThemeBroadcast: "Panel broadcast",
   studioThemeBroadcastHelp:
     "Set premium a cinque posti con sedute visibili e banco stratificato, progettato per registrazione e diretta pulita in 16:9.",
+  studioThemePremium: "Pronto produzione",
+  studioThemeCreativePreview: "Set creativo",
+  studioThemeProductionNote:
+    "After Hours, Color Block Club, Electric Commons, Soft Social e Panel broadcast usano arredi foreground calibrati che inseriscono ogni avatar dentro la scena.",
   studioThemeGarage: "Pop garage",
   studioThemeGarageHelp: "Colorato, irriverente e DIY per creator, cultura giovane e confronti veloci.",
   studioThemePulp: "Pulp podcast",
@@ -812,7 +918,7 @@ const italian: Record<TranslationKey, string> = {
   runnerConfirmTitle: "Pronti per andare in onda?",
   runnerConfirmStart: "Vai in onda",
   runnerAutoConfirm:
-    "La regia condurrà la diretta per un massimo di {duration} minuti. Fino a {avatars} LiveAvatar verranno collegati soltanto quando chiamati in onda. Stima massima: circa {credits} crediti, oltre alle chiamate LLM.",
+    "La regia condurrà la diretta per un massimo di {duration} minuti. Il cast completo, fino a {avatars} LiveAvatar, viene collegato prima del primo intervento per cambi immediati. Stima massima: circa {credits} crediti, oltre alle chiamate LLM.",
   runnerPauseHelp:
     "Mentre il LiveAvatar corrente parla, la regia prepara ciò che viene dopo. Ferma chiude immediatamente tutte le sessioni video.",
   runnerAudioHelp:
@@ -843,6 +949,42 @@ const italian: Record<TranslationKey, string> = {
     "La sessione è pronta. Genera il primo intervento quando vuoi iniziare a usare il provider configurato.",
   runnerTokenUsage: "Token — input: {input}, output: {output}",
   runnerGeneratingFor: "Generazione dell’intervento di {name}…",
+  audienceDeskTitle: "Redazione del pubblico",
+  audienceDeskHelp:
+    "Scegli cosa entra nel programma: mostra un messaggio, passalo al conduttore, giralo a un ospite oppure usalo come spunto editoriale.",
+  audienceConnected: "Chat live collegata",
+  audienceNewCount: "{count} da valutare",
+  audienceNotConfigured: "L’accesso al pubblico YouTube non è configurato",
+  audienceNotConfiguredHelp:
+    "Aggiungi YOUTUBE_API_KEY all’ambiente del server, quindi riavvia il server di sviluppo.",
+  audienceSource: "URL della diretta YouTube o ID video",
+  audienceSourcePlaceholder: "https://www.youtube.com/watch?v=…",
+  audienceManualReview: "Revisione manuale",
+  audienceManualReviewHelp:
+    "Opzionale. Se attiva, ogni nuovo messaggio deve essere approvato prima di poter essere usato dalla regia.",
+  audienceConnect: "Collega la chat live",
+  audienceConnecting: "Collegamento…",
+  audienceConnectError: "Impossibile collegare la chat live di YouTube.",
+  audienceDisconnect: "Scollega",
+  audienceWaiting: "In attesa dei nuovi messaggi dalla diretta YouTube…",
+  audienceModerator: "Moderatore",
+  audienceMember: "Membro",
+  audienceApprove: "Approva",
+  audienceReject: "Scarta",
+  audiencePutOnAir: "Porta in onda",
+  audienceSendToHost: "Passa al conduttore",
+  audienceSendToGuest: "Chiedi all’ospite",
+  audienceUseAsPrompt: "Usa come spunto",
+  audienceTarget: "Destinatario del messaggio",
+  audienceTargetAutomatic: "La regia sceglie l’ospite",
+  audienceActionError: "Impossibile completare l’azione sul pubblico.",
+  audienceOnAir: "Dal pubblico",
+  audienceStatus_pending: "Da approvare",
+  audienceStatus_available: "Nuovo",
+  audienceStatus_on_air: "In onda",
+  audienceStatus_queued: "In coda",
+  audienceStatus_used: "Usato",
+  audienceStatus_rejected: "Scartato",
   studioStatusError: "Lo stato di LiveAvatar non è momentaneamente disponibile.",
   studioPaidConfirm:
     "Avviare lo studio live a pagamento? L’audio verrà attivato e ogni sessione LiveAvatar si chiuderà alla fine della diretta o quando la fermerai.",
@@ -882,7 +1024,7 @@ const italian: Record<TranslationKey, string> = {
   studioAddressing: "A {name}",
   studioNextChapter: "Nuovo capitolo",
   studioDirectorHelp:
-    "Auto dirige primi piani temporizzati, brevi confronti, reazioni e campi totali senza interrompere chi sta parlando.",
+    "La regia cambia inquadratura nello stesso intervento: push-in cinematografici, dettagli, confronti, reazioni e campi larghi di respiro.",
   studioLiveSystem: "Cast LiveAvatar",
   studioLiveSystemHelp:
     "L’intero cast AI si collega in parallelo prima del primo intervento: i cambi successivi sono immediati e ogni ospite resta visibilmente presente.",
@@ -900,6 +1042,8 @@ const italian: Record<TranslationKey, string> = {
   studioStartCamera: "Porta in video il primo ospite umano",
   studioStopCamera: "Spegni la videocamera dell’ospite",
   studioCredits: "{credits} crediti",
+  studioVoiceStartup: "avvio della voce",
+  studioVoiceHandoff: "cambio partecipante",
   studioEnableAudio: "Attiva audio",
   studioStopLive: "Ferma diretta",
   studioVolume: "Volume",

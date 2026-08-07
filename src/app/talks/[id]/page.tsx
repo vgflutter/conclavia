@@ -42,6 +42,10 @@ function formatModel(modelId: LlmModelId, locale: Locale): string {
 
 function studioThemeKey(theme: StudioThemeId): TranslationKey {
   const keys: Record<StudioThemeId, TranslationKey> = {
+    after_hours: "studioThemeAfterHours",
+    color_block_club: "studioThemeColorBlock",
+    electric_commons: "studioThemeElectric",
+    soft_social: "studioThemeSoftSocial",
     broadcast_panel: "studioThemeBroadcast",
     pop_garage: "studioThemeGarage",
     pulp_podcast: "studioThemePulp",
