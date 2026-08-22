@@ -1,6 +1,7 @@
 import type { TalkRunDocument } from "@/models/TalkRun";
 import type { TalkRunAudienceCue } from "@/types/audience";
 import type { TalkRunResponse } from "@/types/talk-run";
+import { normalizeTalkOnAirNames } from "@/lib/on-air-names";
 
 function serializeAudienceCue(
   cue: TalkRunAudienceCue,
@@ -18,8 +19,11 @@ function serializeAudienceCue(
 
 export function serializeTalkRun(run: TalkRunDocument): TalkRunResponse {
   const discussionState = run.discussionState;
-  const talkSnapshot = run.talkSnapshot
+  const rawTalkSnapshot = run.talkSnapshot
     ? JSON.parse(JSON.stringify(run.talkSnapshot)) as TalkRunResponse["talkSnapshot"]
+    : undefined;
+  const talkSnapshot = rawTalkSnapshot
+    ? normalizeTalkOnAirNames(rawTalkSnapshot)
     : undefined;
   if (talkSnapshot) {
     talkSnapshot.participants = talkSnapshot.participants.map(
@@ -34,6 +38,11 @@ export function serializeTalkRun(run: TalkRunDocument): TalkRunResponse {
       }),
     );
   }
+
+  const participantName = (index: number | undefined, fallback: string) =>
+    index === undefined
+      ? fallback
+      : talkSnapshot?.participants[index]?.name ?? fallback;
 
   return {
     id: run._id.toString(),
@@ -50,11 +59,27 @@ export function serializeTalkRun(run: TalkRunDocument): TalkRunResponse {
       ? {
           speakerType: run.activeTurn.speakerType,
           participantIndex: run.activeTurn.participantIndex,
-          speakerName: run.activeTurn.speakerName,
-          speakerRole: run.activeTurn.speakerRole,
+          speakerName:
+            run.activeTurn.speakerType === "participant"
+              ? participantName(
+                  run.activeTurn.participantIndex,
+                  run.activeTurn.speakerName,
+                )
+              : talkSnapshot?.moderator.name ?? run.activeTurn.speakerName,
+          speakerRole:
+            run.activeTurn.speakerType === "participant" &&
+            run.activeTurn.participantIndex !== undefined
+              ? talkSnapshot?.participants[run.activeTurn.participantIndex]
+                  ?.role ?? run.activeTurn.speakerRole
+              : talkSnapshot?.moderator.role ?? run.activeTurn.speakerRole,
           intent: run.activeTurn.intent,
           targetParticipantIndex: run.activeTurn.targetParticipantIndex,
-          targetSpeakerName: run.activeTurn.targetSpeakerName,
+          targetSpeakerName: run.activeTurn.targetSpeakerName
+            ? participantName(
+                run.activeTurn.targetParticipantIndex,
+                run.activeTurn.targetSpeakerName,
+              )
+            : undefined,
           threadLabel: run.activeTurn.threadLabel,
           arcPhase:
             run.activeTurn.arcPhase ??
@@ -132,11 +157,24 @@ export function serializeTalkRun(run: TalkRunDocument): TalkRunResponse {
       sequence: message.sequence,
       speakerType: message.speakerType,
       participantIndex: message.participantIndex,
-      speakerName: message.speakerName,
-      speakerRole: message.speakerRole,
+      speakerName:
+        message.speakerType === "participant"
+          ? participantName(message.participantIndex, message.speakerName)
+          : talkSnapshot?.moderator.name ?? message.speakerName,
+      speakerRole:
+        message.speakerType === "participant" &&
+        message.participantIndex !== undefined
+          ? talkSnapshot?.participants[message.participantIndex]?.role ??
+            message.speakerRole
+          : talkSnapshot?.moderator.role ?? message.speakerRole,
       intent: message.intent ?? "argument",
       targetParticipantIndex: message.targetParticipantIndex,
-      targetSpeakerName: message.targetSpeakerName,
+      targetSpeakerName: message.targetSpeakerName
+        ? participantName(
+            message.targetParticipantIndex,
+            message.targetSpeakerName,
+          )
+        : undefined,
       threadLabel: message.threadLabel ?? "",
       arcPhase:
         message.arcPhase ?? discussionState?.arcPhase ?? "positions",

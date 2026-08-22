@@ -410,7 +410,21 @@ function parseSettings(value: unknown, issues: string[]): TalkSettings {
   ) {
     issues.push("settings.targetDurationMinutes must be a positive integer");
   } else if ((targetDurationMinutes as number) > 5) {
-    issues.push("settings.targetDurationMinutes must not exceed 5 for LiveAvatar");
+    issues.push("settings.targetDurationMinutes must not exceed 5");
+  }
+
+  const videoMode =
+    settings.videoMode === undefined || settings.videoMode === "liveavatar"
+      ? "liveavatar"
+      : settings.videoMode === "unreal"
+        ? "unreal"
+        : "liveavatar";
+  if (
+    settings.videoMode !== undefined &&
+    settings.videoMode !== "liveavatar" &&
+    settings.videoMode !== "unreal"
+  ) {
+    issues.push("settings.videoMode must be liveavatar or unreal");
   }
 
   const rawDefaultModel =
@@ -454,6 +468,7 @@ function parseSettings(value: unknown, issues: string[]): TalkSettings {
     targetDurationMinutes: Number.isInteger(targetDurationMinutes)
       ? (targetDurationMinutes as number)
       : 5,
+    videoMode,
     studioTheme,
     defaultModel,
     allowInterruptions:

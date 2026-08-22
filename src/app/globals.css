@@ -56,13 +56,64 @@ a {
 }
 
 .broadcast-stinger {
-  animation: conclavia-broadcast-stinger 1.8s cubic-bezier(0.2, 0.82, 0.2, 1)
+  animation: conclavia-broadcast-stinger 4.8s cubic-bezier(0.2, 0.82, 0.2, 1)
     both;
+}
+
+@keyframes conclavia-opener-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: saturate(0.94) brightness(0.96);
+  }
+  50% {
+    transform: scale(1.018);
+    filter: saturate(1.06) brightness(1.02);
+  }
+}
+
+@keyframes conclavia-opener-kicker {
+  0%,
+  100% {
+    opacity: 0.68;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes conclavia-preroll {
+  from {
+    background-position: 130% 0;
+  }
+  to {
+    background-position: -30% 0;
+  }
+}
+
+.broadcast-opener > img {
+  animation: conclavia-opener-breathe 8s ease-in-out infinite;
+}
+
+.broadcast-opener-kicker {
+  animation: conclavia-opener-kicker 1.8s ease-in-out infinite;
+}
+
+.broadcast-preroll {
+  background-image: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgb(103 232 249 / 5%) 48%,
+    rgb(255 255 255 / 7%) 50%,
+    transparent 62%
+  );
+  background-size: 220% 100%;
+  animation: conclavia-preroll 3.6s ease-in-out infinite;
 }
 
 @keyframes conclavia-camera-cut {
   from {
-    opacity: 0.11;
+    opacity: 0.045;
   }
   to {
     opacity: 0;
@@ -70,17 +121,50 @@ a {
 }
 
 .broadcast-camera-cut {
-  animation: conclavia-camera-cut 110ms ease-out both;
+  animation: conclavia-camera-cut 70ms ease-out both;
 }
 
-@keyframes conclavia-lower-third-in {
+@keyframes conclavia-lower-third-in-left {
   from {
     opacity: 0;
-    transform: translateX(-18px);
+    transform: translate3d(-14px, 5px, 0);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes conclavia-lower-third-in-right {
+  from {
+    opacity: 0;
+    transform: translate3d(14px, 5px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes conclavia-lower-third-out-left {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(-10px, 4px, 0);
+  }
+}
+
+@keyframes conclavia-lower-third-out-right {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(10px, 4px, 0);
   }
 }
 
@@ -125,8 +209,22 @@ a {
   animation: conclavia-audio-meter 620ms ease-in-out infinite;
 }
 
-.broadcast-lower-third {
-  animation: conclavia-lower-third-in 240ms cubic-bezier(0.2, 0.82, 0.2, 1)
+.broadcast-lower-third[data-phase="visible"][data-side="left"] {
+  animation: conclavia-lower-third-in-left 220ms
+    cubic-bezier(0.2, 0.82, 0.2, 1) both;
+}
+
+.broadcast-lower-third[data-phase="visible"][data-side="right"] {
+  animation: conclavia-lower-third-in-right 220ms
+    cubic-bezier(0.2, 0.82, 0.2, 1) both;
+}
+
+.broadcast-lower-third[data-phase="leaving"][data-side="left"] {
+  animation: conclavia-lower-third-out-left 220ms ease-in both;
+}
+
+.broadcast-lower-third[data-phase="leaving"][data-side="right"] {
+  animation: conclavia-lower-third-out-right 220ms ease-in
     both;
 }
 
@@ -167,7 +265,10 @@ a {
   .broadcast-audience-card,
   .broadcast-audio-meter span,
   .broadcast-camera-cut,
-  .broadcast-stinger {
+  .broadcast-stinger,
+  .broadcast-opener > img,
+  .broadcast-opener-kicker,
+  .broadcast-preroll {
     animation: none;
   }
 }

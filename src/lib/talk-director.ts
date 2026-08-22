@@ -65,16 +65,16 @@ const BASE_WORD_RANGES: Record<TalkRunIntent, [number, number]> = {
 };
 
 const PACE_SCALE: Record<TalkPace, number> = {
-  fast: 0.66,
-  balanced: 0.9,
-  deep: 1.12,
+  fast: 0.6,
+  balanced: 0.82,
+  deep: 1.04,
 };
 
 export function estimateAirtimeSeconds(
   wordCount: number,
   speakerType: TalkRunTurnPlan["speakerType"],
 ): number {
-  const wordsPerMinute = speakerType === "moderator" ? 185 : 170;
+  const wordsPerMinute = speakerType === "moderator" ? 200 : 195;
   const studioTransitionSeconds = 1;
   return Math.max(
     studioTransitionSeconds,

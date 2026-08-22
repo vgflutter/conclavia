@@ -129,6 +129,12 @@ const talkSchema = new Schema<TalkRecord>(
         min: 1,
         validate: Number.isInteger,
       },
+      videoMode: {
+        type: String,
+        enum: ["liveavatar", "unreal"],
+        required: true,
+        default: "liveavatar",
+      },
       studioTheme: {
         type: String,
         enum: STUDIO_THEME_IDS,

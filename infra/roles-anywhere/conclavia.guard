@@ -1,0 +1,43 @@
+let trust_anchors = Resources.*[
+  Type == "AWS::RolesAnywhere::TrustAnchor"
+]
+
+let profiles = Resources.*[
+  Type == "AWS::RolesAnywhere::Profile"
+]
+
+let device_roles = Resources.*[
+  Type == "AWS::IAM::Role"
+]
+
+rule roles_anywhere_trust_anchor_is_enabled when %trust_anchors !empty {
+  %trust_anchors {
+    Properties.Enabled == true
+    Properties.Source.SourceType == "CERTIFICATE_BUNDLE"
+  }
+}
+
+rule roles_anywhere_profile_uses_short_lived_sessions when %profiles !empty {
+  %profiles {
+    Properties.Enabled == true
+    Properties.DurationSeconds <= 3600
+    Properties.AcceptRoleSessionName == false
+    Properties.RequireInstanceProperties == false
+  }
+}
+
+rule device_role_uses_short_lived_sessions when %device_roles !empty {
+  %device_roles {
+    Properties.MaxSessionDuration <= 3600
+  }
+}
+
+rule device_role_trusts_only_roles_anywhere when %device_roles !empty {
+  %device_roles {
+    Properties.AssumeRolePolicyDocument.Statement[*] {
+      Principal.Service == "rolesanywhere.amazonaws.com"
+      Condition.StringEquals."aws:PrincipalTag/x509Subject/CN" exists
+      Condition.ArnEquals."aws:SourceArn" exists
+    }
+  }
+}

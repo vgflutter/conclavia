@@ -19,6 +19,7 @@ import {
 } from "@/lib/llm-provider";
 import { connectToDatabase } from "@/lib/mongodb";
 import { serializeTalk } from "@/lib/serialize-talk";
+import { normalizeTalkOnAirNames } from "@/lib/on-air-names";
 import { serializeTalkRun } from "@/lib/serialize-talk-run";
 import { getTalkRunBlockCode } from "@/lib/talk-run-compatibility";
 import { buildTurnPrompt } from "@/lib/talk-run-prompt";
@@ -505,7 +506,9 @@ export async function submitHumanTalkRunTurn(
     if (!claimed.talkSnapshot && !talkDocument) {
       throw new Error("The source talk no longer exists");
     }
-    const talk = claimed.talkSnapshot ?? serializeTalk(talkDocument!);
+    const talk = normalizeTalkOnAirNames(
+      claimed.talkSnapshot ?? serializeTalk(talkDocument!),
+    );
     const basePlan = normalizePlan(claimed.activeTurn);
     if (!planIsHuman(talk, basePlan)) {
       throw new AdvanceTalkRunError(

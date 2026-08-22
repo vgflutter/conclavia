@@ -277,6 +277,7 @@ export function buildTurnPrompt(
     preparationInstruction(plan, options.speculative === true),
     referenceInstruction(plan),
     `Write between ${plan.minWords} and ${plan.maxWords} words. The range is deliberate: do not pad a short intervention and do not turn every response into a mini-editorial.`,
+    "Write for the ear, not for the page: use short, naturally punctuated sentences and a varied spoken cadence. Avoid long subordinate chains, parenthetical asides, slash constructions, markdown, and typographic emphasis because the text will be performed live by a voice avatar.",
     "Output only the spoken intervention. Do not prefix it with a name, role, label, stage direction, or quotation marks.",
     "Vary sentence openings and conversational entry points. Never repeatedly use the same template to agree, disagree, name another guest, or take the floor.",
     "Stay in character. Never speak for another guest. Do not invent sources, quotations, statistics, or facts absent from the provided context.",

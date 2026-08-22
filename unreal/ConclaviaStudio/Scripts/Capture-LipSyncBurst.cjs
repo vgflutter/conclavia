@@ -1,0 +1,67 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+const fs = require("fs");
+const path = require("path");
+const { chromium } = require(
+  "C:/PixelStreamingInfrastructure/node_modules/playwright"
+);
+
+const [playerUrl, outputDirectory] = process.argv.slice(2);
+if (!playerUrl || !outputDirectory) {
+  throw new Error(
+    "Usage: node Capture-LipSyncBurst.cjs <player-url> <output-directory>"
+  );
+}
+
+(async () => {
+  fs.mkdirSync(outputDirectory, { recursive: true });
+  const browser = await chromium.launch({
+    executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe",
+    headless: true,
+    args: ["--no-sandbox", "--autoplay-policy=no-user-gesture-required"]
+  });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+    await page.goto(playerUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await page.waitForFunction(
+      () => [...document.querySelectorAll("video")].some(
+        (video) => video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+          && video.videoWidth > 0
+      ),
+      undefined,
+      { timeout: 90_000 }
+    );
+    await page.evaluate(() => {
+      const video = [...document.querySelectorAll("video")].find(
+        (candidate) => candidate.videoWidth > 0
+      );
+      if (!video) throw new Error("Decoded video disappeared.");
+      document.body.style.margin = "0";
+      document.body.style.overflow = "hidden";
+      video.style.position = "fixed";
+      video.style.inset = "0";
+      video.style.width = "100vw";
+      video.style.height = "100vh";
+      video.style.objectFit = "contain";
+      video.style.background = "#020617";
+      video.style.zIndex = "2147483647";
+    });
+
+    await page.waitForTimeout(2_000);
+    const frames = [];
+    for (let index = 0; index < 48; index += 1) {
+      const framePath = path.join(
+        outputDirectory,
+        `frame-${String(index).padStart(2, "0")}.jpg`
+      );
+      await page.screenshot({ path: framePath, type: "jpeg", quality: 94 });
+      frames.push(framePath);
+      await page.waitForTimeout(125);
+    }
+    process.stdout.write(JSON.stringify({ ok: true, frames }));
+  } finally {
+    await browser.close();
+  }
+})().catch((error) => {
+  process.stderr.write(error.stack ?? String(error));
+  process.exitCode = 1;
+});

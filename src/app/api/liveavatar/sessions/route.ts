@@ -22,11 +22,11 @@ type LiveAvatarVideoQuality = "high" | "very_high";
 
 interface SessionRequest {
   avatarId?: unknown;
+  language?: unknown;
+  pace?: unknown;
   seatIndex?: unknown;
   speakerType?: unknown;
   sex?: unknown;
-  language?: unknown;
-  pace?: unknown;
   voiceId?: unknown;
   voiceDelivery?: unknown;
 }
@@ -39,33 +39,57 @@ function normalizeDelivery(value: unknown): VoiceDelivery {
     : "natural";
 }
 
+function normalizeLanguage(value: unknown): "it" | "en" {
+  if (typeof value !== "string") return "en";
+  return value.trim().toLowerCase().startsWith("it") ? "it" : "en";
+}
+
 function voiceSettings(
   delivery: VoiceDelivery,
   pace: unknown,
+  language: "it" | "en",
 ) {
-  const paceAdjustment = pace === "fast" ? 0.04 : pace === "deep" ? -0.03 : 0;
-  const profile = {
-    natural: { speed: 1.08, stability: 0.48, similarity: 0.78 },
-    energetic: { speed: 1.14, stability: 0.38, similarity: 0.76 },
-    authoritative: { speed: 1.04, stability: 0.58, similarity: 0.82 },
+  const paceAdjustment = pace === "fast" ? 0.03 : pace === "deep" ? -0.03 : 0;
+  const italianProfile = {
+    natural: { speed: 1.14, stability: 0.5, similarity: 0.84, style: 0.16 },
+    energetic: { speed: 1.18, stability: 0.42, similarity: 0.82, style: 0.24 },
+    authoritative: {
+      speed: 1.09,
+      stability: 0.59,
+      similarity: 0.86,
+      style: 0.12,
+    },
   }[delivery];
+  const englishProfile = {
+    natural: { speed: 1.06, stability: 0.58, similarity: 0.84, style: 0.12 },
+    energetic: { speed: 1.12, stability: 0.48, similarity: 0.82, style: 0.2 },
+    authoritative: {
+      speed: 1.03,
+      stability: 0.64,
+      similarity: 0.86,
+      style: 0.1,
+    },
+  }[delivery];
+  const profile = language === "it" ? italianProfile : englishProfile;
 
   return {
     provider: "elevenLabs",
-    speed: Math.min(1.18, Math.max(0.95, profile.speed + paceAdjustment)),
+    speed: Math.min(1.18, Math.max(0.98, profile.speed + paceAdjustment)),
     stability: profile.stability,
     similarity_boost: profile.similarity,
-    style: 0,
-    use_speaker_boost: false,
-    model: "eleven_flash_v2_5",
+    style: profile.style,
+    use_speaker_boost: true,
+    model:
+      language === "it" ? "eleven_multilingual_v2" : "eleven_flash_v2_5",
+    apply_language_text_normalization: false,
   };
 }
 
-function customAvatarForRequest(
+function customCastForRequest(
   body: SessionRequest,
   sex: "female" | "male",
-  fallbackVoiceId: string,
-): { id: string; voiceId: string } | undefined {
+  fallback: { id: string; voiceId: string },
+): { id: string; voiceId: string } {
   const isModerator = body.speakerType === "moderator";
   const seatIndex =
     typeof body.seatIndex === "number" &&
@@ -79,24 +103,17 @@ function customAvatarForRequest(
     : seatIndex !== undefined
       ? `LIVEAVATAR_SEAT_${seatIndex + 1}`
       : undefined;
-  if (!prefix) return undefined;
+  if (!prefix) return fallback;
 
-  const id = process.env[`${prefix}_AVATAR_ID`]?.trim();
-  if (!id) return undefined;
+  const id = process.env[`${prefix}_AVATAR_ID`]?.trim() || fallback.id;
+  const voiceId =
+    process.env[`${prefix}_VOICE_ID`]?.trim() || fallback.voiceId;
   const configuredSex = process.env[`${prefix}_SEX`]?.trim().toLowerCase();
-  if (configuredSex !== sex) {
+  const hasOverride = id !== fallback.id || voiceId !== fallback.voiceId;
+  if (hasOverride && configuredSex !== sex) {
     throw new Error(`${prefix}_SEX must match the configured participant sex`);
   }
-  return {
-    id,
-    voiceId:
-      process.env[`${prefix}_VOICE_ID`]?.trim() || fallbackVoiceId,
-  };
-}
-
-function normalizeLanguage(value: unknown): "it" | "en" {
-  if (typeof value !== "string") return "en";
-  return value.trim().toLowerCase().startsWith("it") ? "it" : "en";
+  return { id, voiceId };
 }
 
 export async function POST(request: Request) {
@@ -143,13 +160,12 @@ export async function POST(request: Request) {
     );
   }
   const selectedVoiceId = requestedVoice?.id ?? requestedAvatar.voiceId;
-  let avatar: { id: string; voiceId: string } = requestedAvatar;
+  let cast: { id: string; voiceId: string };
   try {
-    avatar =
-      customAvatarForRequest(body, sex, selectedVoiceId) ?? {
-        id: requestedAvatar.id,
-        voiceId: selectedVoiceId,
-      };
+    cast = customCastForRequest(body, sex, {
+      id: requestedAvatar.id,
+      voiceId: selectedVoiceId,
+    });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Invalid custom avatar" },
@@ -170,11 +186,11 @@ export async function POST(request: Request) {
       method: "POST",
       body: JSON.stringify({
         mode: "FULL",
-        avatar_id: avatar.id,
+        avatar_id: cast.id,
         avatar_persona: {
-          voice_id: avatar.voiceId,
+          voice_id: cast.voiceId,
           language,
-          voice_settings: voiceSettings(delivery, body.pace),
+          voice_settings: voiceSettings(delivery, body.pace, language),
         },
         video_settings: {
           quality,
@@ -210,6 +226,7 @@ export async function POST(request: Request) {
       sessionToken: session.session_token,
       maxSessionDuration,
       videoQuality,
+      audioMode: "liveavatar_full",
     });
   } catch (error) {
     const status = error instanceof LiveAvatarApiError ? error.status : 502;

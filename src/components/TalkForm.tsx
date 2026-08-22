@@ -24,6 +24,7 @@ import {
   getStudioVoice,
   STUDIO_VOICES,
 } from "@/lib/liveavatar-catalog";
+import { virtualParticipantName } from "@/lib/on-air-names";
 import type {
   ModeratorKind,
   Participant,
@@ -108,8 +109,8 @@ function createAiParticipant(index: number, locale: "en" | "it"): Participant {
   return {
     kind: "ai",
     sex: index % 2 === 0 ? "female" : "male",
-    name: `AI ${index + 1}`,
-    role: locale === "it" ? "Partecipante AI" : "AI participant",
+    name: virtualParticipantName(index, locale),
+    role: locale === "it" ? "Ospite virtuale" : "Virtual guest",
     perspectiveMode: "automatic",
     perspectivePrompt: "",
     goals: "",
@@ -171,6 +172,7 @@ function createInitialTalk(locale: "en" | "it"): TalkInput {
     settings: {
       maxTurns: 20,
       targetDurationMinutes: 5,
+      videoMode: "liveavatar",
       studioTheme: DEFAULT_STUDIO_THEME,
       defaultModel: DEFAULT_LLM_MODEL,
       allowInterruptions: true,
@@ -347,6 +349,20 @@ export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
     return t("typeAi");
   }
 
+  function voiceCharacterLabel(
+    character: (typeof STUDIO_VOICES)[number]["character"],
+  ): string {
+    return t(
+      {
+        warm: "voiceCharacterWarm",
+        bright: "voiceCharacterBright",
+        direct: "voiceCharacterDirect",
+        deep: "voiceCharacterDeep",
+        dynamic: "voiceCharacterDynamic",
+      }[character] as TranslationKey,
+    );
+  }
+
   function updateParticipant<K extends keyof Participant>(
     index: number,
     field: K,
@@ -411,10 +427,11 @@ export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
     replaceParticipant(activeParticipant, {
       ...createAiParticipant(activeParticipant, locale),
       sex: participant.sex,
-      name: participant.name || `AI ${activeParticipant + 1}`,
+      name:
+        participant.name || virtualParticipantName(activeParticipant, locale),
       role:
         participant.role ||
-        (locale === "it" ? "Partecipante AI" : "AI participant"),
+        (locale === "it" ? "Ospite virtuale" : "Virtual guest"),
     });
   }
 
@@ -509,12 +526,17 @@ export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
         name:
           kind === "ai"
             ? locale === "it"
-              ? "Conduttore AI"
-              : "AI host"
+              ? "Andrea Conti"
+              : "Alex Morgan"
             : kind === "human"
               ? ""
               : undefined,
-        role: undefined,
+        role:
+          kind === "ai"
+            ? locale === "it"
+              ? "Conduttore"
+              : "Host"
+            : undefined,
         instructions: undefined,
         style: "neutral",
         modelOverride: undefined,
@@ -1016,7 +1038,7 @@ export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
                           </option>
                           {participantVoiceOptions.map((voice) => (
                             <option key={voice.id} value={voice.id}>
-                              {voice.name}
+                              {voice.name} · {voiceCharacterLabel(voice.character)}
                             </option>
                           ))}
                         </select>
@@ -1451,7 +1473,7 @@ export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
                     </option>
                     {moderatorVoiceOptions.map((voice) => (
                       <option key={voice.id} value={voice.id}>
-                        {voice.name}
+                        {voice.name} · {voiceCharacterLabel(voice.character)}
                       </option>
                     ))}
                   </select>
@@ -1614,6 +1636,87 @@ export function TalkForm({ initialTalk, mode = "create" }: TalkFormProps) {
           </p>
         </div>
         <div className="space-y-6">
+          <fieldset>
+            <legend className="label">{t("videoMode")}</legend>
+            <p className="mb-3 text-xs leading-5 text-slate-500">
+              {t("videoModeHelp")}
+            </p>
+            <div className="grid gap-3 md:grid-cols-2">
+              {(
+                [
+                  {
+                    id: "liveavatar" as const,
+                    title: "videoModeLiveAvatar" as TranslationKey,
+                    description: "videoModeLiveAvatarHelp" as TranslationKey,
+                    badge: "Live",
+                    accent: "from-cyan-400/20 via-sky-400/10 to-transparent",
+                  },
+                  {
+                    id: "unreal" as const,
+                    title: "videoModeUnreal" as TranslationKey,
+                    description: "videoModeUnrealHelp" as TranslationKey,
+                    badge: t("videoModeUnrealBeta"),
+                    accent: "from-fuchsia-400/20 via-violet-400/10 to-transparent",
+                  },
+                ] as const
+              ).map((mode) => {
+                const selected = talk.settings.videoMode === mode.id;
+                return (
+                  <label
+                    key={mode.id}
+                    className={`relative cursor-pointer overflow-hidden rounded-2xl border p-4 transition ${
+                      selected
+                        ? "border-[#295c43] bg-[#f3f8f4] ring-2 ring-[#295c43]/15"
+                        : "border-[#dfe4dc] bg-white hover:border-[#a9b9ae]"
+                    }`}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${mode.accent}`}
+                    />
+                    <input
+                      type="radio"
+                      name="videoMode"
+                      value={mode.id}
+                      checked={selected}
+                      onChange={() =>
+                        setTalk({
+                          ...talk,
+                          settings: { ...talk.settings, videoMode: mode.id },
+                        })
+                      }
+                      className="sr-only"
+                    />
+                    <span className="relative flex items-start justify-between gap-4">
+                      <span>
+                        <span className="block text-base font-bold text-[#17211b]">
+                          {t(mode.title)}
+                        </span>
+                        <span className="mt-1 block text-xs leading-5 text-slate-600">
+                          {t(mode.description)}
+                        </span>
+                      </span>
+                      <span
+                        className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-[.13em] ${
+                          selected
+                            ? "bg-[#295c43] text-white"
+                            : "bg-slate-100 text-slate-500"
+                        }`}
+                      >
+                        {mode.badge}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            {talk.settings.videoMode === "unreal" && (
+              <p className="mt-2 rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs leading-5 text-violet-900">
+                {t("videoModeUnrealNote")}
+              </p>
+            )}
+          </fieldset>
+
           <fieldset id="studio-theme">
             <legend className="label">{t("studioTheme")}</legend>
             <div className="space-y-5">

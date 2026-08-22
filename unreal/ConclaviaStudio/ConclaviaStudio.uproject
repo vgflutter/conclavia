@@ -1,0 +1,25 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.8",
+  "Category": "Conclavia",
+  "Description": "Conclavia real-time multi-agent studio POC",
+  "Modules": [
+    {
+      "Name": "ConclaviaStudio",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "Plugins": [
+    { "Name": "LiveLink", "Enabled": true },
+    { "Name": "MetaHumanCharacter", "Enabled": true },
+    { "Name": "MetaHumanCoreTech", "Enabled": true },
+    { "Name": "MetaHumanSDK", "Enabled": true },
+    { "Name": "MetaHuman", "Enabled": true },
+    { "Name": "MetaHumanLiveLink", "Enabled": true },
+    { "Name": "RuntimeMetaHumanLipSync", "Enabled": true },
+    { "Name": "PixelStreaming2", "Enabled": true },
+    { "Name": "PythonScriptPlugin", "Enabled": true },
+    { "Name": "EditorScriptingUtilities", "Enabled": true }
+  ]
+}

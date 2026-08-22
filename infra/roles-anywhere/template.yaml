@@ -1,0 +1,167 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Conclavia Studio device identity for autonomous control of one Unreal GPU
+  instance from the authorized Mac through IAM Roles Anywhere.
+
+Parameters:
+  DeviceCommonName:
+    Type: String
+    Default: conclavia-ram020
+    AllowedPattern: "^[a-z0-9][a-z0-9-]{2,62}$"
+    Description: Common Name encoded in the authorized Mac certificate.
+  CertificateBundle:
+    Type: String
+    MaxLength: 4096
+    Description: PEM-encoded public certificate of the Conclavia device CA.
+  InstanceId:
+    Type: String
+    Default: i-033248199865f3e6e
+    AllowedPattern: "^i-[0-9a-f]{8,17}$"
+    Description: Exact EC2 GPU instance controlled by the device role.
+  SecurityGroupId:
+    Type: String
+    Default: sg-0b2e4054a32145ed7
+    AllowedPattern: "^sg-[0-9a-f]{8,17}$"
+    Description: Exact security group whose temporary ingress is managed.
+  AutomationBucket:
+    Type: String
+    Default: conclavia-unreal-poc-transfer-194000006241
+    AllowedPattern: "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+    Description: Existing private bucket used for the auto-stop installer.
+
+Resources:
+  DeviceTrustAnchor:
+    Type: AWS::RolesAnywhere::TrustAnchor
+    Properties:
+      Name: !Sub "${AWS::StackName}-device-ca"
+      Enabled: true
+      Source:
+        SourceType: CERTIFICATE_BUNDLE
+        SourceData:
+          X509CertificateData: !Ref CertificateBundle
+      Tags:
+        - Key: Project
+          Value: Conclavia
+        - Key: Purpose
+          Value: studio-device-authentication
+
+  StudioDeviceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Least-privilege device role for the Conclavia Unreal studio.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TrustOnlyTheConclaviaMacCertificate
+            Effect: Allow
+            Principal:
+              Service: rolesanywhere.amazonaws.com
+            Action:
+              - sts:AssumeRole
+              - sts:SetSourceIdentity
+              - sts:TagSession
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt DeviceTrustAnchor.TrustAnchorArn
+              StringEquals:
+                aws:PrincipalTag/x509Subject/CN: !Ref DeviceCommonName
+      Policies:
+        - PolicyName: ConclaviaStudioLifecycle
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadStudioState
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeInstanceStatus
+                  - ec2:DescribeSecurityGroupRules
+                  - ssm:DescribeInstanceInformation
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: !Ref AWS::Region
+              - Sid: StartAndStopOnlyTheStudioGpu
+                Effect: Allow
+                Action:
+                  - ec2:StartInstances
+                  - ec2:StopInstances
+                Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${InstanceId}"
+              - Sid: ManageOnlyTheStudioSecurityGroup
+                Effect: Allow
+                Action:
+                  - ec2:AuthorizeSecurityGroupIngress
+                  - ec2:RevokeSecurityGroupIngress
+                Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:security-group/${SecurityGroupId}"
+              - Sid: RunOnlyTheApprovedSsmDocumentOnTheStudioGpu
+                Effect: Allow
+                Action:
+                  - ssm:SendCommand
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${InstanceId}"
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}::document/AWS-RunPowerShellScript"
+              - Sid: ReadStudioCommandResults
+                Effect: Allow
+                Action:
+                  - ssm:GetCommandInvocation
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: !Ref AWS::Region
+              - Sid: UpdateOnlyTheAutoStopInstaller
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${AutomationBucket}/automation/install-3d-auto-stop.ps1"
+              - Sid: PublishVersionedStudioSource
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:${AWS::Partition}:s3:::${AutomationBucket}/source/*"
+              - Sid: SynthesizeAvatarSpeech
+                Effect: Allow
+                Action:
+                  - polly:SynthesizeSpeech
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: !Ref AWS::Region
+      Tags:
+        - Key: Project
+          Value: Conclavia
+        - Key: Purpose
+          Value: studio-device-control
+
+  StudioDeviceProfile:
+    Type: AWS::RolesAnywhere::Profile
+    Properties:
+      Name: !Sub "${AWS::StackName}-profile"
+      Enabled: true
+      DurationSeconds: 3600
+      AcceptRoleSessionName: false
+      RequireInstanceProperties: false
+      RoleArns:
+        - !GetAtt StudioDeviceRole.Arn
+      AttributeMappings:
+        - CertificateField: x509Subject
+          MappingRules:
+            - Specifier: CN
+      Tags:
+        - Key: Project
+          Value: Conclavia
+        - Key: Purpose
+          Value: studio-device-authentication
+
+Outputs:
+  DeviceRoleArn:
+    Description: IAM role assumed by the authorized Conclavia Mac.
+    Value: !GetAtt StudioDeviceRole.Arn
+  ProfileArn:
+    Description: IAM Roles Anywhere profile used by aws_signing_helper.
+    Value: !GetAtt StudioDeviceProfile.ProfileArn
+  TrustAnchorArn:
+    Description: IAM Roles Anywhere trust anchor for the Conclavia device CA.
+    Value: !GetAtt DeviceTrustAnchor.TrustAnchorArn

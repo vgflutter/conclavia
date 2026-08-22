@@ -9,6 +9,7 @@ export type VoiceDelivery = "natural" | "energetic" | "authoritative";
 export type ModeratorKind = "none" | "ai" | "human";
 export type ModeratorStyle = "neutral" | "challenging" | "facilitating";
 export type TalkPace = "fast" | "balanced" | "deep";
+export type VideoMode = "liveavatar" | "unreal";
 
 export interface Participant {
   kind: ParticipantKind;
@@ -46,6 +47,7 @@ export interface ModeratorConfiguration {
 export interface TalkSettings {
   maxTurns: number;
   targetDurationMinutes: number;
+  videoMode: VideoMode;
   studioTheme: StudioThemeId;
   defaultModel: LlmModelId;
   allowInterruptions: boolean;

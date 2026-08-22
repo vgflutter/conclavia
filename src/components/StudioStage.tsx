@@ -3,16 +3,20 @@
 import Image from "next/image";
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import type { LiveAvatarSession } from "@heygen/liveavatar-web-sdk";
 
 import { useTranslations } from "@/i18n/I18nProvider";
 import type { TranslationKey } from "@/i18n/translations";
 import {
+  findStudioVoice,
   getStudioAvatar,
   getStudioModeratorAvatar,
   getStudioVoice,
@@ -51,24 +55,30 @@ interface DirectorCue {
   motionDurationMs?: number;
 }
 
+interface OnAirGraphic {
+  sequence: number;
+  phase: "visible" | "leaving";
+  showRelationship: boolean;
+}
+
 export interface StudioStageHandle {
   startLiveStudio: () => Promise<void>;
   prepareSpeaker: (speaker: SpeakerDescriptor) => Promise<void>;
+  prepareMessage?: (message: TalkRunMessageResponse) => Promise<void>;
   speak: (message: TalkRunMessageResponse) => Promise<void>;
   stopLiveStudio: () => Promise<void>;
 }
 
-type SpeakerDescriptor = Pick<
+export type SpeakerDescriptor = Pick<
   TalkRunTurnPlan,
   "speakerType" | "participantIndex"
 >;
 
-interface StudioStageProps {
+export interface StudioStageProps {
   talk: TalkResponse;
   run: TalkRunResponse | null;
   presentation?: "studio" | "broadcast";
   activePlan?: TalkRunTurnPlan;
-  streamingContent?: string;
   broadcastAudioState?: BroadcastAudioState;
   broadcastMessage?: TalkRunMessageResponse;
   audienceOverlay?: AudienceMessageResponse;
@@ -77,6 +87,14 @@ interface StudioStageProps {
   onBroadcastStateChange?: (
     state: BroadcastAudioState,
     message?: TalkRunMessageResponse,
+  ) => void;
+  onVoiceStreamReady?: (
+    speaker: SpeakerDescriptor,
+    stream: MediaStream,
+  ) => void;
+  onVoiceActivityChange?: (
+    speaker: SpeakerDescriptor,
+    active: boolean,
   ) => void;
 }
 
@@ -119,29 +137,6 @@ interface ManagedSession {
   commandSentAt?: number;
 }
 
-interface LiveKitCommandTransport {
-  room: {
-    state: string;
-    localParticipant: {
-      publishData: (
-        data: Uint8Array,
-        options: { reliable: boolean; topic: string },
-      ) => Promise<void>;
-    };
-  };
-}
-
-interface StudioAudioGraph {
-  context: AudioContext;
-  limiter: DynamicsCompressorNode;
-  gain: GainNode;
-}
-
-interface StudioAudioChannel {
-  source: MediaStreamAudioSourceNode;
-  nodes: AudioNode[];
-}
-
 interface StudioTimingMetrics {
   startupMs?: number;
   handoffMs?: number;
@@ -153,9 +148,20 @@ interface StudioTimingMetrics {
 const BASE_POSITIONS = [6, 22, 39, 56, 73];
 const SEAT_CENTERS = [17, 33, 50, 67, 84];
 const CLOSE_SHOT_POSITIONS = [32, 41, 50, 59, 68];
+const PHASE_STINGER_DURATION_MS = 4_800;
 const SEAT_ACCENTS = ["#22d3ee", "#a78bfa", "#fbbf24", "#fb7185", "#34d399"];
 const LIVEAVATAR_FULL_CREDITS_PER_MINUTE = 2;
 const MAX_CONCURRENT_LIVEAVATARS = 5;
+const CAPTION_PREFERENCE_EVENT = "conclavia:caption-preference";
+const EXCHANGE_INTENTS: readonly TalkRunIntent[] = [
+  "reply",
+  "challenge",
+  "question",
+  "answer",
+  "clarification",
+  "partial_agreement",
+  "interruption",
+];
 
 function captionChunks(content: string): string[] {
   const words = content.trim().split(/\s+/u).filter(Boolean);
@@ -221,6 +227,16 @@ function intentKey(intent: TalkRunIntent): TranslationKey {
   return keys[intent];
 }
 
+function liveAvatarSpeech(content: string): string {
+  return content
+    .replace(/\*\*([^*]+)\*\*/gu, "$1")
+    .replace(/__([^_]+)__/gu, "$1")
+    .replace(/[`*_#]/gu, "")
+    .replace(/\s*[—–]\s*/gu, ", ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
 function HumanSilhouette() {
   return (
     <svg viewBox="0 0 300 420" className="h-full w-full" aria-hidden="true">
@@ -246,19 +262,49 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       run,
       presentation = "studio",
       activePlan,
-      streamingContent = "",
       broadcastAudioState = "idle",
       broadcastMessage,
       audienceOverlay,
       runControlActive = false,
       onPauseRun,
       onBroadcastStateChange,
+      onVoiceStreamReady,
+      onVoiceActivityChange,
     },
     ref,
   ) {
     const { locale, t } = useTranslations();
     const isBroadcast = presentation === "broadcast";
     const [shotMode, setShotMode] = useState<ShotMode>("auto");
+    const captionPreferenceKey = `conclavia:captions:${talk.id}`;
+    const subscribeToCaptionPreference = useCallback(
+      (notify: () => void) => {
+        const syncStorage = (event: StorageEvent) => {
+          if (event.key === captionPreferenceKey) notify();
+        };
+        const syncLocal = (event: Event) => {
+          if ((event as CustomEvent<string>).detail === captionPreferenceKey) {
+            notify();
+          }
+        };
+        window.addEventListener("storage", syncStorage);
+        window.addEventListener(CAPTION_PREFERENCE_EVENT, syncLocal);
+        return () => {
+          window.removeEventListener("storage", syncStorage);
+          window.removeEventListener(CAPTION_PREFERENCE_EVENT, syncLocal);
+        };
+      },
+      [captionPreferenceKey],
+    );
+    const readCaptionPreference = useCallback(
+      () => window.localStorage.getItem(captionPreferenceKey) === "true",
+      [captionPreferenceKey],
+    );
+    const captionsEnabled = useSyncExternalStore(
+      subscribeToCaptionPreference,
+      readCaptionPreference,
+      () => false,
+    );
     const [studioState, setStudioState] = useState<StudioState>("idle");
     const [audioState, setAudioState] = useState<AudioState>("idle");
     const [volume, setVolume] = useState(1);
@@ -281,6 +327,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       sequence: -1,
       index: 0,
     });
+    const [onAirGraphic, setOnAirGraphic] = useState<OnAirGraphic>();
     const [cameraSeat, setCameraSeat] = useState<number | null>(null);
     const [cameraError, setCameraError] = useState<string | null>(null);
     const [timingMetrics, setTimingMetrics] = useState<StudioTimingMetrics>({
@@ -304,14 +351,17 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const moderatorChromaCleanupRef = useRef<ChromaKeyPipeline | null>(null);
     const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
     const cameraStreamRef = useRef<MediaStream | null>(null);
-    const audioGraphRef = useRef<StudioAudioGraph | null>(null);
-    const audioChannelRefs = useRef<Map<HTMLVideoElement, StudioAudioChannel>>(
-      new Map(),
-    );
     const lastSpeechEndedAtRef = useRef<number | undefined>(undefined);
+    const captionSpeechStartedAtRef = useRef<{
+      sequence: number;
+      startedAt: number;
+    } | undefined>(undefined);
     const studioLockReleaseRef = useRef<(() => void) | null>(null);
     const previousArcPhaseRef = useRef<TalkRunArcPhase | undefined>(undefined);
+    const phaseStingerTimerRef = useRef<number | null>(null);
+    const finishPhaseStingerRef = useRef<(() => void) | null>(null);
     const directorTimersRef = useRef<number[]>([]);
+    const graphicTimersRef = useRef<number[]>([]);
     const seatVideoReadyRef = useRef(seatVideoReady);
     const cameraRigRef = useRef<HTMLDivElement | null>(null);
 
@@ -346,8 +396,6 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       showBroadcastContext &&
       talk.moderator.kind === "ai" &&
       visibleSpeakerType === "moderator";
-    const reactionPreviewIndex =
-      directorCue?.kind === "reaction" ? directorCue.focusIndex : undefined;
     const targetParticipantIndex = runCompleted || !showBroadcastContext
       ? undefined
       : programmeMessage?.targetParticipantIndex ??
@@ -356,32 +404,10 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const currentIntent = showBroadcastContext
       ? programmeMessage?.intent ?? currentTurn?.intent ?? latestMessage?.intent
       : undefined;
-    const currentThread = showBroadcastContext
-      ? programmeMessage?.threadLabel ||
-        currentTurn?.threadLabel ||
-        latestMessage?.threadLabel ||
-        run?.discussionState.currentFocus ||
-        talk.topic
-      : talk.topic;
-    const currentSpeaker = showBroadcastContext
-      ? reactionPreviewIndex !== undefined
-        ? talk.participants[reactionPreviewIndex]?.name
-        : programmeMessage?.speakerName ??
-          currentTurn?.speakerName ??
-          latestMessage?.speakerName
-      : undefined;
-    const currentRole =
-      reactionPreviewIndex !== undefined
-        ? talk.participants[reactionPreviewIndex]?.role
-        : programmeMessage?.speakerRole ??
-          (activeParticipantIndex !== undefined
-            ? talk.participants[activeParticipantIndex]?.role
-            : talk.moderator.role);
-    const currentTargetName =
-      programmeMessage?.targetSpeakerName ?? currentTurn?.targetSpeakerName;
-    const currentCaptionChunks = onAirMessage
-      ? captionChunks(onAirMessage.content)
-      : [];
+    const currentCaptionChunks = useMemo(
+      () => (onAirMessage ? captionChunks(onAirMessage.content) : []),
+      [onAirMessage],
+    );
     const captionSequence = onAirMessage?.sequence;
     const captionAirtimeSeconds = onAirMessage?.estimatedAirtimeSeconds;
     const captionIndex =
@@ -389,15 +415,25 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       captionProgress.sequence === captionSequence
         ? captionProgress.index
         : 0;
-    const visibleCaption = onAirMessage
+    const visibleCaption = captionsEnabled && onAirMessage
       ? currentCaptionChunks[
           Math.min(captionIndex, Math.max(0, currentCaptionChunks.length - 1))
         ] ?? ""
-      : !isBroadcast
-        ? streamingContent
-        : "";
-    const visibleArcPhase =
-      activePlan?.arcPhase ?? run?.activeTurn?.arcPhase ?? run?.discussionState.arcPhase;
+      : "";
+    const graphicMessage =
+      onAirMessage && onAirGraphic?.sequence === onAirMessage.sequence
+        ? onAirMessage
+        : undefined;
+    const graphicSpeakerIndex = graphicMessage?.participantIndex;
+    const graphicSide =
+      graphicSpeakerIndex === undefined || graphicSpeakerIndex >= 3
+        ? "left"
+        : "right";
+    const graphicRole =
+      graphicMessage?.speakerRole ??
+      (graphicSpeakerIndex === undefined
+        ? talk.moderator.role
+        : talk.participants[graphicSpeakerIndex]?.role);
     const firstHumanSeat = talk.participants.findIndex(
       (participant) => participant.kind === "human",
     );
@@ -441,15 +477,15 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     const cameraZoom =
       effectiveShot === "close"
         ? directorCue?.framing === "tight"
-          ? 1.9
+          ? 1.7
           : directorCue?.framing === "loose"
-            ? 1.52
-            : 1.68
+            ? 1.36
+            : 1.5
         : effectiveShot === "duo"
           ? duoSpan <= 18
-            ? 1.3
+            ? 1.22
             : duoSpan <= 35
-              ? 1.14
+              ? 1.1
               : 1
           : 1;
     const cameraAnchor =
@@ -519,45 +555,123 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
 
     useEffect(() => {
       if (
+        !captionsEnabled ||
+        broadcastAudioState !== "speaking" ||
         captionSequence === undefined ||
         captionAirtimeSeconds === undefined ||
-        currentCaptionChunks.length <= 1
+        currentCaptionChunks.length === 0
       ) {
         return;
       }
 
-      const estimatedSpeechMs = Math.max(
-        1_400,
-        captionAirtimeSeconds * 840,
+      const wordCounts = currentCaptionChunks.map(
+        (chunk) => chunk.split(/\s+/u).filter(Boolean).length,
       );
-      const intervalMs = Math.max(
-        1_100,
-        Math.round(estimatedSpeechMs / currentCaptionChunks.length),
+      const totalWords = Math.max(
+        1,
+        wordCounts.reduce((total, count) => total + count, 0),
       );
-      let nextIndex = 0;
-      const timer = window.setInterval(() => {
-        nextIndex += 1;
-        const boundedIndex = Math.min(
-          nextIndex,
-          currentCaptionChunks.length - 1,
+      const estimatedSpeechMs = Math.max(800, captionAirtimeSeconds * 840);
+      const recordedStart = captionSpeechStartedAtRef.current;
+      const startedAt =
+        recordedStart?.sequence === captionSequence
+          ? recordedStart.startedAt
+          : performance.now();
+
+      const updateCaption = () => {
+        const progress = Math.min(
+          1,
+          Math.max(0, (performance.now() - startedAt) / estimatedSpeechMs),
         );
-        setCaptionProgress({ sequence: captionSequence, index: boundedIndex });
-        if (boundedIndex >= currentCaptionChunks.length - 1) {
-          window.clearInterval(timer);
+        const spokenWordTarget = Math.max(1, Math.ceil(progress * totalWords));
+        let cumulativeWords = 0;
+        let nextIndex = 0;
+        for (let index = 0; index < wordCounts.length; index += 1) {
+          cumulativeWords += wordCounts[index];
+          nextIndex = index;
+          if (spokenWordTarget <= cumulativeWords) break;
         }
-      }, intervalMs);
+        setCaptionProgress({ sequence: captionSequence, index: nextIndex });
+      };
+
+      updateCaption();
+      const timer = window.setInterval(updateCaption, 120);
       return () => window.clearInterval(timer);
     }, [
+      broadcastAudioState,
       captionAirtimeSeconds,
       captionSequence,
-      currentCaptionChunks.length,
+      captionsEnabled,
+      currentCaptionChunks,
     ]);
+
+    function toggleCaptions() {
+      window.localStorage.setItem(
+        captionPreferenceKey,
+        String(!captionsEnabled),
+      );
+      window.dispatchEvent(
+        new CustomEvent(CAPTION_PREFERENCE_EVENT, {
+          detail: captionPreferenceKey,
+        }),
+      );
+    }
 
     function clearDirectorTimers() {
       for (const timer of directorTimersRef.current) {
         window.clearTimeout(timer);
       }
       directorTimersRef.current = [];
+    }
+
+    function clearGraphicTimers() {
+      for (const timer of graphicTimersRef.current) {
+        window.clearTimeout(timer);
+      }
+      graphicTimersRef.current = [];
+    }
+
+    function hideOnAirGraphic() {
+      clearGraphicTimers();
+      setOnAirGraphic(undefined);
+    }
+
+    function presentOnAirGraphic(message: TalkRunMessageResponse) {
+      clearGraphicTimers();
+      const relationshipDuration = usesCreatorDirection ? 1_250 : 1_550;
+      const visibleDuration = usesCreatorDirection ? 2_450 : 2_850;
+      const hasRelationship = Boolean(message.targetSpeakerName);
+      setOnAirGraphic({
+        sequence: message.sequence,
+        phase: "visible",
+        showRelationship: hasRelationship,
+      });
+
+      if (hasRelationship) {
+        graphicTimersRef.current.push(
+          window.setTimeout(() => {
+            setOnAirGraphic((current) =>
+              current?.sequence === message.sequence
+                ? { ...current, showRelationship: false }
+                : current,
+            );
+          }, relationshipDuration),
+        );
+      }
+      graphicTimersRef.current.push(
+        window.setTimeout(() => {
+          setOnAirGraphic((current) =>
+            current?.sequence === message.sequence
+              ? { ...current, phase: "leaving" }
+              : current,
+          );
+        }, visibleDuration),
+        window.setTimeout(() => {
+          setOnAirGraphic((current) =>
+            current?.sequence === message.sequence ? undefined : current,
+          );
+        }, visibleDuration + 240),
+      );
     }
 
     function takeCamera(cue: DirectorCue) {
@@ -572,6 +686,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
 
     function directSpeakingMessage(message: TalkRunMessageResponse) {
       clearDirectorTimers();
+      presentOnAirGraphic(message);
       const speakerIndex = message.participantIndex;
       const durationMs = Math.max(
         5_200,
@@ -581,8 +696,8 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         const hostCue: DirectorCue = {
           shot: "close",
           kind: "speaker",
-          framing: message.intent === "question" ? "tight" : "medium",
-          motion: usesCreatorDirection ? "push_in" : "locked",
+          framing: "medium",
+          motion: "locked",
           motionDurationMs: Math.min(
             usesCreatorDirection ? 6_000 : 8_000,
             durationMs,
@@ -592,155 +707,203 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           takeCamera({
             shot: "wide",
             kind: "context",
-            motion: usesCreatorDirection ? "push_in" : "locked",
+            motion: "locked",
           });
-          scheduleDirectorCue(usesCreatorDirection ? 1_350 : 1_800, hostCue);
+          scheduleDirectorCue(usesCreatorDirection ? 950 : 1_300, hostCue);
         } else {
           takeCamera(hostCue);
-          if (message.intent === "closing" && durationMs >= 7_500) {
-            scheduleDirectorCue(durationMs - 2_800, {
+          if (durationMs >= (usesCreatorDirection ? 8_000 : 10_000)) {
+            scheduleDirectorCue(
+              Math.min(durationMs - 2_200, durationMs * 0.55),
+              {
+                ...hostCue,
+                framing: message.intent === "question" ? "tight" : "medium",
+                motion: usesCreatorDirection ? "push_in" : "locked",
+                motionDurationMs: 3_200,
+              },
+            );
+          }
+          if (message.intent === "closing" && durationMs >= 13_000) {
+            scheduleDirectorCue(durationMs - 2_600, {
               shot: "wide",
               kind: "context",
-              motion: usesCreatorDirection ? "push_in" : "locked",
-              motionDurationMs: usesCreatorDirection ? 2_600 : 3_400,
+              motion: "locked",
+              motionDurationMs: 2_400,
             });
           }
         }
         return;
       }
 
-      const pattern = message.sequence % 3;
       const speakerCue: DirectorCue = {
         shot: "close",
         focusIndex: speakerIndex,
         kind: "speaker",
-        framing:
-          usesCreatorDirection && pattern === 1 ? "loose" : "medium",
-        motion: usesCreatorDirection
-          ? pattern === 0
-            ? "push_in"
-            : pattern === 1
-              ? "drift_left"
-              : "drift_right"
-          : pattern === 0
-            ? "push_in"
-            : "locked",
-        motionDurationMs: Math.min(
-          usesCreatorDirection ? 6_200 : 8_200,
-          durationMs,
-        ),
+        framing: "medium",
+        motion: "locked",
+        motionDurationMs: Math.min(5_000, durationMs),
       };
-      takeCamera(speakerCue);
       const targetIndex = message.targetParticipantIndex;
       const targetIsReady =
-        targetIndex !== undefined && seatVideoReadyRef.current[targetIndex];
-      const targetIsAdjacent =
-        targetIndex !== undefined && Math.abs(speakerIndex - targetIndex) === 1;
+        targetIndex !== undefined &&
+        targetIndex !== speakerIndex &&
+        seatVideoReadyRef.current[targetIndex];
+      const isDirectExchange =
+        targetIsReady && EXCHANGE_INTENTS.includes(message.intent);
+      const shortTurnThreshold = usesCreatorDirection ? 7_200 : 8_200;
+      const longTurnThreshold = usesCreatorDirection ? 14_000 : 17_000;
 
-      const minimumPunchDuration = usesCreatorDirection ? 7_800 : 11_500;
-      if (durationMs < minimumPunchDuration) return;
+      if (isDirectExchange && targetIndex !== undefined) {
+        const exchangeOpeningDuration =
+          message.intent === "interruption"
+            ? 900
+            : usesCreatorDirection
+              ? 1_200
+              : 1_500;
+        const exchangeCue: DirectorCue = {
+          shot: "duo",
+          focusIndex: speakerIndex,
+          companionIndex: targetIndex,
+          kind: "context",
+          framing: "medium",
+          motion: "locked",
+          motionDurationMs: exchangeOpeningDuration,
+        };
+        takeCamera(exchangeCue);
+        if (durationMs < shortTurnThreshold) return;
+        scheduleDirectorCue(exchangeOpeningDuration, speakerCue);
 
-      const punchAt = usesCreatorDirection
-        ? Math.min(5_400, Math.max(3_200, durationMs * 0.34))
-        : Math.min(8_000, Math.max(5_000, durationMs * 0.48));
-      const punchCue: DirectorCue = {
+        if (durationMs >= longTurnThreshold) {
+          const reactionDuration = usesCreatorDirection ? 1_350 : 1_750;
+          const reactionAt = Math.min(
+            durationMs - reactionDuration - 2_000,
+            Math.max(exchangeOpeningDuration + 3_500, durationMs * 0.64),
+          );
+          scheduleDirectorCue(reactionAt, {
+            shot: "close",
+            focusIndex: targetIndex,
+            kind: "reaction",
+            framing: "loose",
+            motion: "locked",
+            motionDurationMs: reactionDuration,
+          });
+          scheduleDirectorCue(reactionAt + reactionDuration, {
+            ...exchangeCue,
+            kind: "context",
+            motion: "locked",
+            motionDurationMs: Math.max(
+              2_000,
+              durationMs - reactionAt - reactionDuration,
+            ),
+          });
+        } else if (durationMs >= shortTurnThreshold) {
+          const punchAt = Math.min(
+            durationMs - 1_800,
+            Math.max(exchangeOpeningDuration + 2_700, durationMs * 0.58),
+          );
+          scheduleDirectorCue(punchAt, {
+            ...speakerCue,
+            framing: "tight",
+            motion: usesCreatorDirection ? "push_in" : "locked",
+            motionDurationMs: Math.max(1_400, durationMs - punchAt - 1_600),
+          });
+          scheduleDirectorCue(durationMs - 1_600, {
+            ...exchangeCue,
+            motionDurationMs: 1_500,
+          });
+        }
+        return;
+      }
+
+      takeCamera(speakerCue);
+      if (durationMs < shortTurnThreshold) return;
+
+      const punchAt = Math.min(
+        durationMs - 2_000,
+        Math.max(
+          usesCreatorDirection ? 3_000 : 4_200,
+          durationMs * (usesCreatorDirection ? 0.43 : 0.5),
+        ),
+      );
+      scheduleDirectorCue(punchAt, {
         ...speakerCue,
         framing: "tight",
-        motion: "push_in",
-        motionDurationMs: Math.max(2_800, durationMs - punchAt),
-      };
-      scheduleDirectorCue(punchAt, punchCue);
+        motion: usesCreatorDirection ? "push_in" : "locked",
+        motionDurationMs: Math.max(1_400, durationMs - punchAt - 1_800),
+      });
 
-      const minimumInsertDuration = usesCreatorDirection ? 11_500 : 15_000;
-      if (targetIsReady && durationMs >= minimumInsertDuration) {
-        const insertAt = Math.min(
-          durationMs - (usesCreatorDirection ? 3_200 : 4_000),
-          Math.max(
-            punchAt + (usesCreatorDirection ? 3_200 : 4_200),
-            durationMs * (usesCreatorDirection ? 0.62 : 0.68),
-          ),
-        );
-        const insertDuration = targetIsAdjacent
-          ? usesCreatorDirection
-            ? 2_750
-            : 3_400
-          : usesCreatorDirection
-            ? 2_150
-            : 2_800;
-        scheduleDirectorCue(insertAt, {
-          shot: targetIsAdjacent ? "duo" : "close",
-          focusIndex: targetIsAdjacent ? speakerIndex : targetIndex,
-          companionIndex: targetIsAdjacent ? targetIndex : undefined,
-          kind: targetIsAdjacent ? "context" : "reaction",
-          framing: targetIsAdjacent ? "medium" : "loose",
-          motion: usesCreatorDirection
-            ? targetIsAdjacent
-              ? "push_in"
-              : "drift_right"
-            : "locked",
-          motionDurationMs: insertDuration,
-        });
-        scheduleDirectorCue(insertAt + insertDuration, {
-          ...speakerCue,
-          framing: "medium",
-          motion: usesCreatorDirection
-            ? pattern === 2
-              ? "drift_left"
-              : "push_in"
-            : "locked",
-          motionDurationMs: Math.max(2_500, durationMs - insertAt - insertDuration),
-        });
-      } else if (durationMs >= (usesCreatorDirection ? 14_500 : 20_000)) {
-        const contextDuration = usesCreatorDirection ? 2_350 : 3_200;
-        const contextAt = Math.min(
-          durationMs - (usesCreatorDirection ? 3_200 : 4_200),
-          durationMs * (usesCreatorDirection ? 0.67 : 0.72),
-        );
-        scheduleDirectorCue(contextAt, {
+      if (durationMs < longTurnThreshold) {
+        scheduleDirectorCue(durationMs - 1_800, {
           shot: "wide",
           kind: "context",
-          motion: usesCreatorDirection ? "push_in" : "locked",
-          motionDurationMs: contextDuration,
+          motion: "locked",
+          motionDurationMs: 1_700,
         });
+        return;
+      }
+      const contextDuration = usesCreatorDirection ? 1_450 : 2_000;
+      const contextAt = Math.min(
+        durationMs - contextDuration - 1_800,
+        Math.max(punchAt + 2_600, durationMs * 0.69),
+      );
+      scheduleDirectorCue(
+        contextAt,
+        targetIsReady && targetIndex !== undefined
+          ? {
+              shot: "close",
+              focusIndex: targetIndex,
+              kind: "reaction",
+              framing: "loose",
+              motion: "locked",
+              motionDurationMs: contextDuration,
+            }
+          : {
+              shot: "wide",
+              kind: "context",
+              motion: "locked",
+              motionDurationMs: contextDuration,
+            },
+      );
+      if (targetIsReady && targetIndex !== undefined) {
         scheduleDirectorCue(contextAt + contextDuration, {
-          ...speakerCue,
-          framing: "tight",
-          motion: usesCreatorDirection ? "push_in" : "locked",
+          shot: "duo",
+          focusIndex: speakerIndex,
+          companionIndex: targetIndex,
+          kind: "context",
+          framing: "medium",
+          motion: "locked",
           motionDurationMs: Math.max(
-            2_400,
+            1_800,
             durationMs - contextAt - contextDuration,
           ),
         });
       }
-
-      if (durationMs >= (usesCreatorDirection ? 22_000 : 28_000)) {
-        scheduleDirectorCue(durationMs - 4_800, {
-          ...speakerCue,
-          framing: "tight",
-          motion: usesCreatorDirection ? "push_in" : "locked",
-          motionDurationMs: 4_600,
-        });
-      }
     }
 
-    useEffect(() => {
+    function dismissPhaseStinger() {
+      finishPhaseStingerRef.current?.();
+    }
+
+    function presentPhaseStinger(phase: TalkRunArcPhase) {
       const previous = previousArcPhaseRef.current;
-      previousArcPhaseRef.current = visibleArcPhase;
-      if (
-        !previous ||
-        !visibleArcPhase ||
-        previous === visibleArcPhase ||
-        studioState === "idle"
-      ) {
-        return;
-      }
-      setPhaseStinger(visibleArcPhase);
-      const timer = window.setTimeout(
-        () => setPhaseStinger(undefined),
-        1_800,
+      previousArcPhaseRef.current = phase;
+      if (previous === phase) return;
+
+      dismissPhaseStinger();
+      setStudioAudioFocus();
+      setPhaseStinger(phase);
+      const finish = () => {
+        if (finishPhaseStingerRef.current !== finish) return;
+        finishPhaseStingerRef.current = null;
+        phaseStingerTimerRef.current = null;
+        setPhaseStinger(undefined);
+      };
+      finishPhaseStingerRef.current = finish;
+      phaseStingerTimerRef.current = window.setTimeout(
+        finish,
+        PHASE_STINGER_DURATION_MS,
       );
-      return () => window.clearTimeout(timer);
-    }, [studioState, visibleArcPhase]);
+    }
 
     function participantSex(index: number): "female" | "male" {
       return talk.participants[index]?.sex === "male" ? "male" : "female";
@@ -854,78 +1017,10 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         : avatarVideoRefs.current[target.participantIndex] ?? null;
     }
 
-    function studioAudioGraph(): StudioAudioGraph {
-      const existing = audioGraphRef.current;
-      if (existing && existing.context.state !== "closed") return existing;
-
-      const context = new AudioContext({
-        latencyHint: "interactive",
-        sampleRate: 48_000,
-      });
-      const limiter = context.createDynamicsCompressor();
-      limiter.threshold.value = -4;
-      limiter.knee.value = 2;
-      limiter.ratio.value = 12;
-      limiter.attack.value = 0.002;
-      limiter.release.value = 0.12;
-      const gain = context.createGain();
-      gain.gain.value = volume;
-      limiter.connect(gain).connect(context.destination);
-      const graph = { context, limiter, gain };
-      audioGraphRef.current = graph;
-      return graph;
-    }
-
-    function connectStudioAudio(
-      video: HTMLVideoElement,
-      target: SpeakerTarget,
-    ): boolean {
+    function connectStudioAudio(video: HTMLVideoElement): boolean {
       const stream = video.srcObject;
       if (!(stream instanceof MediaStream) || stream.getAudioTracks().length === 0) {
         return false;
-      }
-      if (!audioChannelRefs.current.has(video)) {
-        const graph = studioAudioGraph();
-        const source = graph.context.createMediaStreamSource(stream);
-        const highPass = graph.context.createBiquadFilter();
-        highPass.type = "highpass";
-        highPass.frequency.value = target.sex === "female" ? 88 : 72;
-        highPass.Q.value = 0.7;
-        const lowMid = graph.context.createBiquadFilter();
-        lowMid.type = "peaking";
-        lowMid.frequency.value = target.sex === "female" ? 310 : 250;
-        lowMid.Q.value = 0.9;
-        lowMid.gain.value = -1.8;
-        const presence = graph.context.createBiquadFilter();
-        presence.type = "peaking";
-        presence.frequency.value = target.sex === "female" ? 3_400 : 3_000;
-        presence.Q.value = 0.8;
-        presence.gain.value = target.voiceDelivery === "energetic" ? 0.7 : 1.2;
-        const compressor = graph.context.createDynamicsCompressor();
-        compressor.threshold.value = -22;
-        compressor.knee.value = 8;
-        compressor.ratio.value =
-          target.voiceDelivery === "energetic" ? 3.2 : 2.6;
-        compressor.attack.value = 0.008;
-        compressor.release.value = 0.14;
-        const channelGain = graph.context.createGain();
-        channelGain.gain.value =
-          target.voiceDelivery === "energetic"
-            ? 0.94
-            : target.voiceDelivery === "authoritative"
-              ? 1.03
-              : 1;
-        source
-          .connect(highPass)
-          .connect(lowMid)
-          .connect(presence)
-          .connect(compressor)
-          .connect(channelGain)
-          .connect(graph.limiter);
-        audioChannelRefs.current.set(video, {
-          source,
-          nodes: [highPass, lowMid, presence, compressor, channelGain],
-        });
       }
       video.muted = true;
       video.volume = 0;
@@ -934,37 +1029,50 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         .some((track) => track.enabled && track.readyState === "live");
     }
 
+    function directOutputVolume(target: SpeakerTarget): number {
+      const deliveryGain =
+        target.voiceDelivery === "energetic"
+          ? 0.94
+          : target.voiceDelivery === "authoritative"
+            ? 1.03
+            : 1;
+      return Math.min(
+        1,
+        volume * deliveryGain * (findStudioVoice(target.voiceId)?.outputGain ?? 1),
+      );
+    }
+
+    function setStudioAudioFocus(video?: HTMLVideoElement) {
+      for (const managed of sessionsRef.current.values()) {
+        const isOnAir = managed.video === video;
+        managed.video.volume = isOnAir ? directOutputVolume(managed.target) : 0;
+        managed.video.muted = !isOnAir;
+        if (isOnAir) void managed.video.play().catch(() => setAudioState("blocked"));
+      }
+    }
+
+    function silenceStudioAudio(video: HTMLVideoElement) {
+      video.volume = 0;
+      video.muted = true;
+    }
+
     function disconnectStudioAudio(video: HTMLVideoElement) {
-      const channel = audioChannelRefs.current.get(video);
-      channel?.source.disconnect();
-      for (const node of channel?.nodes ?? []) node.disconnect();
-      audioChannelRefs.current.delete(video);
+      video.volume = 0;
+      video.muted = true;
     }
 
     function releaseStudioAudio() {
-      for (const channel of audioChannelRefs.current.values()) {
-        channel.source.disconnect();
-        for (const node of channel.nodes) node.disconnect();
+      for (const managed of sessionsRef.current.values()) {
+        managed.video.volume = 0;
+        managed.video.muted = true;
       }
-      audioChannelRefs.current.clear();
-      const context = audioGraphRef.current?.context;
-      audioGraphRef.current = null;
-      if (context && context.state !== "closed") void context.close();
     }
 
     async function activateStudioAudio(): Promise<boolean> {
-      const graph = studioAudioGraph();
-      try {
-        if (graph.context.state === "suspended") await graph.context.resume();
-      } catch {
-        setAudioState("blocked");
-        return false;
-      }
       const sessions = Array.from(sessionsRef.current.values());
       if (sessions.length === 0) {
-        const unlocked = graph.context.state === "running";
-        setAudioState(unlocked ? "waiting" : "blocked");
-        return unlocked;
+        setAudioState("waiting");
+        return true;
       }
 
       let blocked = false;
@@ -976,45 +1084,26 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           video.volume = 0;
           try {
             await video.play();
-            if (connectStudioAudio(video, managed.target)) liveAudioTracks += 1;
+            if (connectStudioAudio(video)) liveAudioTracks += 1;
           } catch {
             blocked = true;
           }
         }),
       );
+      const activeSession = sessions.find((managed) => managed.currentMessage);
+      setStudioAudioFocus(activeSession?.video);
       if (sessionsRef.current.size === 0) {
         setAudioState("idle");
         return true;
       }
       setAudioState(
-        blocked || graph.context.state !== "running"
+        blocked
           ? "blocked"
           : liveAudioTracks > 0
             ? "playing"
             : "waiting",
       );
-      return !blocked && graph.context.state === "running";
-    }
-
-    async function makeAvatarSpeak(
-      session: LiveAvatarSession,
-      content: string,
-    ): Promise<void> {
-      const sessionId = session.sessionId;
-      const transport = session as unknown as LiveKitCommandTransport;
-      if (!sessionId || transport.room.state !== "connected") {
-        throw new Error(t("studioSpeakerUnavailable"));
-      }
-
-      const payload = {
-        event_id: crypto.randomUUID(),
-        event_type: "avatar.speak_text",
-        text: content,
-      };
-      await transport.room.localParticipant.publishData(
-        new TextEncoder().encode(JSON.stringify(payload)),
-        { reliable: true, topic: "agent-control" },
-      );
+      return !blocked;
     }
 
     function clearStudioTimers() {
@@ -1023,6 +1112,14 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         keepAliveTimerRef.current = null;
       }
       clearDirectorTimers();
+      hideOnAirGraphic();
+      if (phaseStingerTimerRef.current !== null) {
+        window.clearTimeout(phaseStingerTimerRef.current);
+        phaseStingerTimerRef.current = null;
+      }
+      finishPhaseStingerRef.current?.();
+      finishPhaseStingerRef.current = null;
+      setPhaseStinger(undefined);
     }
 
     async function acquireStudioLock(): Promise<void> {
@@ -1215,6 +1312,17 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         video.muted = true;
         video.volume = 0;
         session.attach(video);
+        const attachedStream = video.srcObject;
+        if (attachedStream instanceof MediaStream) {
+          onVoiceStreamReady?.(
+            {
+              speakerType:
+                target.participantIndex === undefined ? "moderator" : "participant",
+              participantIndex: target.participantIndex,
+            },
+            attachedStream,
+          );
+        }
         streamReady = true;
         resolveStreamReady?.();
         void activateStudioAudio();
@@ -1284,6 +1392,25 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       });
       session.on(sdk.AgentEventsEnum.AVATAR_SPEAK_STARTED, () => {
         const startedAt = performance.now();
+        onVoiceActivityChange?.(
+          {
+            speakerType:
+              target.participantIndex === undefined ? "moderator" : "participant",
+            participantIndex: target.participantIndex,
+          },
+          true,
+        );
+        dismissPhaseStinger();
+        if (managed.currentMessage) {
+          captionSpeechStartedAtRef.current = {
+            sequence: managed.currentMessage.sequence,
+            startedAt,
+          };
+          setCaptionProgress({
+            sequence: managed.currentMessage.sequence,
+            index: 0,
+          });
+        }
         if (managed.commandSentAt !== undefined) {
           const startupMs = Math.max(0, startedAt - managed.commandSentAt);
           const handoffMs =
@@ -1297,6 +1424,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           }));
         }
         if (managed.currentMessage) directSpeakingMessage(managed.currentMessage);
+        setStudioAudioFocus(managed.video);
         setStudioState("speaking");
         if (target.participantIndex !== undefined) {
           setSeatState(target.participantIndex, "speaking");
@@ -1308,7 +1436,18 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         void activateStudioAudio();
       });
       session.on(sdk.AgentEventsEnum.AVATAR_SPEAK_ENDED, () => {
+        onVoiceActivityChange?.(
+          {
+            speakerType:
+              target.participantIndex === undefined ? "moderator" : "participant",
+            participantIndex: target.participantIndex,
+          },
+          false,
+        );
         lastSpeechEndedAtRef.current = performance.now();
+        captionSpeechStartedAtRef.current = undefined;
+        hideOnAirGraphic();
+        silenceStudioAudio(managed.video);
         if (target.participantIndex !== undefined) {
           setSeatState(target.participantIndex, "ready");
         } else {
@@ -1408,8 +1547,8 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
     }
 
     async function startLiveStudio(): Promise<void> {
-      // Called synchronously from the operator's click so the AudioContext keeps
-      // that user activation while the five remote sessions connect.
+      // Called synchronously from the operator's click so the page retains a
+      // trusted media activation while the five remote sessions connect.
       void activateStudioAudio();
       if (studioState === "ready" || studioState === "speaking") return;
       if (startPromiseRef.current) return startPromiseRef.current;
@@ -1418,6 +1557,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         setStudioError(null);
         setTimingMetrics({ samples: 0 });
         lastSpeechEndedAtRef.current = undefined;
+        previousArcPhaseRef.current = undefined;
         setStudioState("starting");
         setAudioState("idle");
         await acquireStudioLock();
@@ -1492,6 +1632,8 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           ? "moderator"
           : `participant:${message.participantIndex}`;
       await prepareSpeaker(message);
+      presentPhaseStinger(message.arcPhase);
+      if (stoppingRef.current) throw new Error(t("studioSpeakerUnavailable"));
       let managed = sessionsRef.current.get(key);
       if (!managed) throw new Error(t("studioSpeakerUnavailable"));
 
@@ -1516,18 +1658,13 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           seatVideoReadyRef.current[reactionTarget];
         if (canCutToReaction) {
           takeCamera({
-            shot: "close",
-            focusIndex: reactionTarget,
-            kind: "reaction",
-            framing: "loose",
-            motion: usesCreatorDirection ? "drift_right" : "locked",
-            motionDurationMs: usesCreatorDirection ? 1_500 : 2_000,
-          });
-          scheduleDirectorCue(usesCreatorDirection ? 1_500 : 2_000, {
-            shot: "wide",
+            shot: "duo",
+            focusIndex: message.participantIndex,
+            companionIndex: reactionTarget,
             kind: "context",
+            framing: "loose",
             motion: usesCreatorDirection ? "push_in" : "locked",
-            motionDurationMs: usesCreatorDirection ? 2_200 : 3_000,
+            motionDurationMs: usesCreatorDirection ? 4_200 : 5_200,
           });
         } else {
           takeCamera({
@@ -1551,7 +1688,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       managed.video.volume = 0;
       try {
         await managed.video.play();
-        connectStudioAudio(managed.video, managed.target);
+        connectStudioAudio(managed.video);
       } catch {
         setAudioState("blocked");
       }
@@ -1567,6 +1704,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           }
           managed.finishSpeech = undefined;
           managed.currentMessage = undefined;
+          silenceStudioAudio(managed.video);
           clearDirectorTimers();
           if (error) {
             setDirectorCue(undefined);
@@ -1586,9 +1724,11 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
           Math.max(30_000, Math.min(120_000, wordCount * 1_100)),
         );
         managed.commandSentAt = performance.now();
-        void makeAvatarSpeak(managed.session, message.content).catch(() => {
+        try {
+          managed.session.repeat(liveAvatarSpeech(message.content));
+        } catch {
           finish(new Error(t("studioSpeechError")));
-        });
+        }
       });
     }
 
@@ -1659,6 +1799,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         };
       }
       if (effectiveShot === "close") {
+        const distanceFromFocus = Math.abs(index - framedFocusIndex);
         return index === framedFocusIndex
           ? {
               ...baseLayout,
@@ -1668,8 +1809,13 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             }
           : {
               ...baseLayout,
-              opacity: 0,
-              transform: "scale(.98)",
+              opacity:
+                distanceFromFocus === 1
+                  ? 0.34
+                  : distanceFromFocus === 2
+                    ? 0.15
+                    : 0.07,
+              transform: "translateY(1.5%) scale(.95)",
               zIndex: 10,
             };
       }
@@ -1692,8 +1838,8 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
         }
         return {
           ...baseLayout,
-          opacity: 0,
-          transform: "scale(.98)",
+          opacity: 0.2,
+          transform: "translateY(1.2%) scale(.96)",
           zIndex: 10,
         };
       }
@@ -1829,19 +1975,31 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
       liveTargets.length *
       talk.settings.targetDurationMinutes *
       LIVEAVATAR_FULL_CREDITS_PER_MINUTE;
+    const showOpeningSlate =
+      studioState === "starting" ||
+      (runControlActive &&
+        studioState === "ready" &&
+        broadcastAudioState === "idle" &&
+        (run?.messages.length ?? 0) === 0);
+    const openingProgress =
+      liveTargets.length === 0
+        ? 100
+        : (connectedCount / liveTargets.length) * 100;
     const studioIsLive = studioState === "speaking";
     const studioNeedsAudio = audioState === "blocked";
     const stageStatusKey: TranslationKey = studioIsLive
       ? "studioOnAir"
       : studioNeedsAudio
         ? "studioAudioBlockedBadge"
-        : studioState === "starting"
-          ? "studioConnectingBadge"
-          : studioState === "ready"
-            ? "studioReadyBadge"
-            : run?.status === "completed"
-              ? "studioRunCompletedBadge"
-              : "studioPreview";
+        : broadcastAudioState === "loading"
+          ? "studioCueingBadge"
+          : studioState === "starting"
+            ? "studioConnectingBadge"
+            : studioState === "ready"
+              ? "studioReadyBadge"
+              : run?.status === "completed"
+                ? "studioRunCompletedBadge"
+                : "studioPreview";
     const studioStateKey: TranslationKey =
       studioState === "starting"
         ? "studioConnecting"
@@ -1975,7 +2133,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             return (
               <div key={`${participant.name}-${index}`}>
                 <div
-                  className="absolute h-[63%] transition-[opacity,transform] duration-[90ms] ease-out"
+                  className="absolute h-[63%] transition-[opacity,transform] duration-[180ms] ease-out"
                   style={{
                     ...layout,
                     bottom: `${studioTheme.avatarBottomPercent ?? 8}%`,
@@ -2052,7 +2210,7 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                   )}
                 </div>
 
-                {!isBroadcast && effectiveShot === "wide" && (
+                {!isBroadcast && effectiveShot === "wide" && !graphicMessage && (
                   <div
                     className="absolute bottom-[4.4%] z-30 transition-all duration-500 ease-out"
                     style={{
@@ -2154,21 +2312,30 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             aria-hidden="true"
           />
 
+          {broadcastAudioState === "loading" &&
+            !phaseStinger &&
+            !showOpeningSlate && (
+              <div
+                className="broadcast-preroll pointer-events-none absolute inset-0 z-[29]"
+                aria-hidden="true"
+              />
+            )}
+
           <div className="absolute left-[2.2%] top-[3.5%] z-40 flex items-center gap-2 rounded-full border border-white/15 bg-[#07101d]/82 px-[2.1%] py-[.8%] text-[clamp(.52rem,1vw,.92rem)] font-black tracking-[.22em] text-white shadow-lg backdrop-blur-md">
             <span className="inline-flex size-[clamp(.32rem,.72vw,.52rem)] rounded-full bg-cyan-400 shadow-[0_0_12px_#22d3ee]" />
             CONCLAVIA
           </div>
           <div
-            className={`absolute right-[2.2%] top-[3.5%] z-40 flex items-center gap-1.5 rounded-full border px-[1.8%] py-[.75%] text-[clamp(.48rem,.9vw,.82rem)] font-bold uppercase tracking-[.18em] text-white shadow-lg ${studioIsLive ? "border-red-400/30 bg-red-600/90" : studioNeedsAudio ? "border-amber-300/40 bg-amber-500/90" : "border-cyan-200/25 bg-[#12314c]/90"}`}
+            className={`absolute right-[2.2%] top-[3.5%] z-40 flex items-center gap-1.5 rounded-full border px-[1.2%] py-[.48%] text-[clamp(.38rem,.68vw,.64rem)] font-bold uppercase tracking-[.16em] text-white shadow-lg ${studioIsLive ? "border-red-400/30 bg-red-600/90" : studioNeedsAudio ? "border-amber-300/40 bg-amber-500/90" : "border-cyan-200/25 bg-[#12314c]/86"}`}
             data-studio-status={stageStatusKey}
           >
             <span className={`size-[clamp(.28rem,.6vw,.44rem)] rounded-full ${studioIsLive ? "animate-pulse bg-white" : studioNeedsAudio ? "bg-amber-100" : "bg-cyan-300"}`} />
             {t(stageStatusKey)}
           </div>
 
-          {(studioState !== "idle" || runControlActive) && (
+          {isBroadcast && (studioState !== "idle" || runControlActive) && (
             <div
-              className={`absolute right-[2.2%] top-[12%] z-50 flex flex-col items-end gap-2 ${isBroadcast ? "opacity-0 transition-opacity hover:opacity-100 focus-within:opacity-100" : ""}`}
+              className="absolute right-[2.2%] top-[10%] z-50 flex flex-col items-end gap-2 opacity-0 transition-opacity hover:opacity-100 focus-within:opacity-100"
             >
               {studioNeedsAudio && (
                 <button
@@ -2181,6 +2348,14 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
               )}
               <button
                 type="button"
+                aria-pressed={captionsEnabled}
+                onClick={toggleCaptions}
+                className={`rounded-full border px-3 py-1.5 text-[clamp(.36rem,.78vw,.62rem)] font-bold shadow-lg transition ${captionsEnabled ? "border-cyan-200/45 bg-cyan-400 text-slate-950 hover:bg-cyan-300" : "border-white/20 bg-slate-950/88 text-white hover:bg-slate-800"}`}
+              >
+                {t(captionsEnabled ? "studioDisableCaptions" : "studioEnableCaptions")}
+              </button>
+              <button
+                type="button"
                 onClick={() => void requestStopStudio()}
                 className="rounded-full border border-red-300/40 bg-red-600/95 px-3 py-1.5 text-[clamp(.36rem,.78vw,.62rem)] font-bold text-white shadow-lg transition hover:bg-red-500"
               >
@@ -2189,13 +2364,46 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             </div>
           )}
 
-          {!isBroadcast && showBroadcastContext && currentThread && !phaseStinger && (
-            <div className="absolute left-1/2 top-[4%] z-30 max-w-[46%] -translate-x-1/2 truncate rounded-full border border-white/10 bg-slate-950/68 px-[2%] py-[.7%] text-center text-[clamp(.46rem,.82vw,.8rem)] font-semibold text-slate-100 shadow-lg backdrop-blur-md">
-              {currentThread}
+          {showOpeningSlate && (
+            <div className="broadcast-opener absolute inset-0 z-[58] overflow-hidden bg-[#050b15] text-white">
+              <Image
+                src="/studio/conclavia-broadcast-bumper-v1.webp"
+                alt=""
+                fill
+                priority
+                sizes="100vw"
+                className="object-cover opacity-85"
+              />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(4,15,30,.08),rgba(3,8,18,.5)_68%,rgba(3,8,18,.86)_100%)]" />
+              <div className="absolute inset-0 flex flex-col items-center justify-center px-[12%] text-center">
+                <p className="broadcast-opener-kicker text-[clamp(.34rem,.72vw,.68rem)] font-black uppercase tracking-[.34em] text-cyan-300">
+                  CONCLAVIA · {t("studioOpeningSoon")}
+                </p>
+                <h2 className="mt-[1.3%] line-clamp-2 max-w-[24ch] text-[clamp(1.05rem,3.1vw,3.25rem)] font-black leading-[1.02] tracking-[-.045em]">
+                  {talk.topic}
+                </h2>
+                <p className="mt-[1.25%] text-[clamp(.42rem,.8vw,.76rem)] font-bold uppercase tracking-[.18em] text-slate-300">
+                  {talk.participants
+                    .map((participant) => participant.name)
+                    .join(" · ")}
+                </p>
+                <div className="mt-[2.4%] h-[3px] w-[30%] overflow-hidden rounded-full bg-white/12">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-sky-300 to-fuchsia-400 transition-[width] duration-700 ease-out"
+                    style={{ width: `${openingProgress}%` }}
+                  />
+                </div>
+                <p className="mt-[.8%] text-[clamp(.32rem,.55vw,.52rem)] font-semibold uppercase tracking-[.2em] text-slate-400">
+                  {t("studioOpeningCast", {
+                    current: connectedCount,
+                    total: liveTargets.length,
+                  })}
+                </p>
+              </div>
             </div>
           )}
 
-          {phaseStinger && (
+          {phaseStinger && !showOpeningSlate && (
             <div className="broadcast-stinger absolute inset-0 z-50 overflow-hidden bg-[#050b15] text-center text-white shadow-[0_24px_80px_rgba(0,0,0,.55)]">
               <Image
                 src="/studio/conclavia-broadcast-bumper-v1.webp"
@@ -2212,6 +2420,9 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                 </p>
                 <p className="mt-[1.2%] text-[clamp(1rem,3.2vw,3.4rem)] font-black tracking-[-.035em]">
                   {t(arcPhaseKey(phaseStinger))}
+                </p>
+                <p className="mt-[1.4%] max-w-[70%] text-[clamp(.58rem,1.15vw,1.05rem)] font-medium leading-snug text-slate-200">
+                  {talk.topic}
                 </p>
                 <div className="mt-[2%] h-px w-[22%] bg-gradient-to-r from-transparent via-cyan-300 to-transparent" />
               </div>
@@ -2256,54 +2467,53 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
             </div>
           )}
 
-          {currentSpeaker && showBroadcastContext && !runCompleted && (
+          {graphicMessage && onAirGraphic && !runCompleted && !audienceCard && (
             <div
-              key={`${programmeMessage?.sequence ?? "plan"}-${currentSpeaker}-${reactionPreviewIndex ?? "speaker"}`}
-              className="broadcast-lower-third absolute bottom-[23%] left-[4%] z-40 flex max-w-[58%] items-stretch overflow-hidden rounded-r-lg border border-white/12 bg-[#050b15]/92 text-white shadow-[0_16px_48px_rgba(0,0,0,.46)] backdrop-blur-md"
-              style={{
-                borderLeftColor:
-                  SEAT_ACCENTS[
-                    reactionPreviewIndex ?? activeParticipantIndex ?? 0
-                  ],
-                borderLeftWidth: "clamp(4px,.45vw,8px)",
-              }}
+              key={`${graphicMessage.sequence}-${graphicMessage.speakerName}`}
+              data-side={graphicSide}
+              data-phase={onAirGraphic.phase}
+              className={`broadcast-lower-third pointer-events-none absolute z-40 max-w-[34%] overflow-hidden rounded-xl border border-white/12 bg-[#050b15]/78 text-white shadow-[0_12px_36px_rgba(0,0,0,.4)] backdrop-blur-md ${graphicSide === "left" ? "left-[3.2%]" : "right-[3.2%]"} ${captionsEnabled ? "bottom-[15%]" : "bottom-[7%]"}`}
             >
-              <div className="flex min-w-0 items-center gap-[clamp(.45rem,1.1vw,1.1rem)] px-[2.2vw] py-[.9vw]">
-                <div
-                  className="flex h-[clamp(1.4rem,2.4vw,2.6rem)] shrink-0 items-center gap-[clamp(2px,.22vw,4px)] rounded-md border border-cyan-300/15 bg-cyan-300/8 px-[clamp(.35rem,.55vw,.65rem)]"
-                  aria-hidden="true"
-                >
-                  {[0, 1, 2, 3].map((bar) => (
+              <span
+                className={`absolute inset-y-0 w-[clamp(3px,.32vw,5px)] ${graphicSide === "left" ? "left-0" : "right-0"}`}
+                style={{
+                  backgroundColor:
+                    SEAT_ACCENTS[graphicSpeakerIndex ?? 0] ?? SEAT_ACCENTS[0],
+                }}
+              />
+              <div className="flex min-w-0 items-center gap-[clamp(.4rem,.75vw,.75rem)] px-[clamp(.7rem,1.25vw,1.2rem)] py-[clamp(.55rem,.8vw,.82rem)]">
+                <span className="flex shrink-0 items-end gap-[2px]" aria-hidden="true">
+                  {[0, 1, 2].map((bar) => (
                     <span
                       key={bar}
-                      className={`h-[58%] w-[clamp(2px,.2vw,4px)] origin-bottom rounded-full bg-cyan-300 ${broadcastAudioState === "speaking" || studioState === "speaking" ? "broadcast-audio-meter-bar" : "scale-y-[.28]"}`}
-                      style={{ animationDelay: `${bar * 90}ms` }}
+                      className="broadcast-audio-meter-bar w-[clamp(2px,.16vw,3px)] origin-bottom rounded-full bg-cyan-300"
+                      style={{
+                        height: `${7 + bar * 3}px`,
+                        animationDelay: `${bar * 90}ms`,
+                      }}
                     />
                   ))}
-                </div>
+                </span>
                 <div className="min-w-0">
-                  <div className="flex items-center gap-[.7vw]">
-                    {(reactionPreviewIndex !== undefined || currentIntent) && (
-                      <span className="shrink-0 rounded bg-cyan-400/14 px-[.55vw] py-[.22vw] text-[clamp(.44rem,.62vw,.72rem)] font-black uppercase tracking-[.14em] text-cyan-200">
-                        {reactionPreviewIndex !== undefined
-                          ? t("studioReaction")
-                          : currentIntent
-                            ? t(intentKey(currentIntent))
-                            : null}
-                      </span>
-                    )}
-                    {currentTargetName && reactionPreviewIndex === undefined && (
-                      <span className="truncate text-[clamp(.44rem,.65vw,.76rem)] font-semibold text-slate-400">
-                        {t("studioAddressing", { name: currentTargetName })}
+                  <div className="flex min-w-0 items-center gap-[.48vw] text-[clamp(.34rem,.5vw,.56rem)] font-black uppercase tracking-[.13em]">
+                    <span className="shrink-0 text-cyan-200">
+                      {t(intentKey(graphicMessage.intent))}
+                    </span>
+                    {onAirGraphic.showRelationship &&
+                      graphicMessage.targetSpeakerName && (
+                      <span className="truncate border-l border-white/15 pl-[.48vw] text-slate-400">
+                        {t("studioAddressing", {
+                          name: graphicMessage.targetSpeakerName,
+                        })}
                       </span>
                     )}
                   </div>
-                  <p className="mt-[.28vw] truncate text-[clamp(.82rem,1.42vw,1.65rem)] font-black leading-none tracking-tight">
-                    {currentSpeaker}
+                  <p className="mt-[.22vw] truncate text-[clamp(.68rem,1.05vw,1.15rem)] font-black leading-none tracking-[-.02em]">
+                    {graphicMessage.speakerName}
                   </p>
-                  {(currentRole || currentThread) && (
-                    <p className="mt-[.34vw] truncate text-[clamp(.5rem,.76vw,.9rem)] font-medium text-slate-300">
-                      {[currentRole, currentThread].filter(Boolean).join(" · ")}
+                  {graphicRole && (
+                    <p className="mt-[.28vw] truncate text-[clamp(.38rem,.56vw,.62rem)] font-medium text-slate-400">
+                      {graphicRole}
                     </p>
                   )}
                 </div>
@@ -2404,22 +2614,56 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                 </div>
               </div>
 
-              {firstHumanSeat >= 0 && (
+              <div className="flex flex-col gap-2 sm:flex-row">
+                {studioNeedsAudio && (
+                  <button
+                    type="button"
+                    onClick={() => void activateStudioAudio()}
+                    className="flex min-h-11 items-center justify-between gap-6 rounded-xl border border-amber-300/30 bg-amber-300/12 px-4 py-2.5 text-left text-xs font-semibold text-amber-100 transition hover:bg-amber-300/18"
+                  >
+                    <span>{t("studioEnableAudio")}</span>
+                    <span className="size-2 rounded-full bg-amber-300" />
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => void toggleCamera()}
-                  className="flex min-h-11 items-center justify-between gap-8 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-left text-xs font-semibold transition hover:bg-white/10 lg:min-w-52"
+                  aria-pressed={captionsEnabled}
+                  onClick={toggleCaptions}
+                  className={`flex min-h-11 items-center justify-between gap-8 rounded-xl border px-4 py-2.5 text-left text-xs font-semibold transition lg:min-w-48 ${captionsEnabled ? "border-cyan-300/30 bg-cyan-300/12 text-cyan-100 hover:bg-cyan-300/18" : "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"}`}
                 >
                   <span>
-                    {cameraSeat === null
-                      ? t("studioStartCamera")
-                      : t("studioStopCamera")}
+                    {t(captionsEnabled ? "studioDisableCaptions" : "studioEnableCaptions")}
                   </span>
                   <span
-                    className={`size-2 rounded-full ${cameraSeat === null ? "bg-slate-600" : "bg-emerald-400"}`}
+                    className={`size-2 rounded-full ${captionsEnabled ? "bg-cyan-300" : "bg-slate-600"}`}
                   />
                 </button>
-              )}
+                {firstHumanSeat >= 0 && (
+                  <button
+                    type="button"
+                    onClick={() => void toggleCamera()}
+                    className="flex min-h-11 items-center justify-between gap-8 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-left text-xs font-semibold transition hover:bg-white/10 lg:min-w-52"
+                  >
+                    <span>
+                      {cameraSeat === null
+                        ? t("studioStartCamera")
+                        : t("studioStopCamera")}
+                    </span>
+                    <span
+                      className={`size-2 rounded-full ${cameraSeat === null ? "bg-slate-600" : "bg-emerald-400"}`}
+                    />
+                  </button>
+                )}
+                {(studioState !== "idle" || runControlActive) && (
+                  <button
+                    type="button"
+                    onClick={() => void requestStopStudio()}
+                    className="min-h-11 rounded-xl border border-red-300/25 bg-red-500/12 px-4 py-2.5 text-xs font-bold text-red-200 transition hover:bg-red-500/20"
+                  >
+                    {t("studioStopLive")}
+                  </button>
+                )}
+              </div>
             </div>
             {cameraError && (
               <p className="mt-2 text-xs text-red-300">{cameraError}</p>
@@ -2495,6 +2739,9 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                         className={`size-1.5 rounded-full ${targetState === "speaking" ? "animate-pulse bg-red-400" : targetState === "ready" ? "bg-emerald-400" : targetState === "connecting" ? "animate-pulse bg-amber-300" : targetState === "error" ? "bg-red-500" : "bg-slate-600"}`}
                       />
                       {target.label}
+                      <span className="text-slate-500">
+                        · {findStudioVoice(target.voiceId)?.name ?? "Custom"}
+                      </span>
                     </span>
                   );
                 })}
@@ -2531,11 +2778,26 @@ export const StudioStage = forwardRef<StudioStageHandle, StudioStageProps>(
                   onChange={(event) => {
                     const nextVolume = Number(event.target.value);
                     setVolume(nextVolume);
-                    const gain = audioGraphRef.current?.gain;
-                    if (gain) gain.gain.setTargetAtTime(nextVolume, gain.context.currentTime, 0.01);
+                    const active = Array.from(sessionsRef.current.values()).find(
+                      (managed) => managed.currentMessage,
+                    );
                     for (const managed of sessionsRef.current.values()) {
-                      managed.video.volume = 0;
-                      managed.video.muted = true;
+                      const isOnAir = managed === active;
+                      const deliveryGain =
+                        managed.target.voiceDelivery === "energetic"
+                          ? 0.94
+                          : managed.target.voiceDelivery === "authoritative"
+                            ? 1.03
+                            : 1;
+                      managed.video.volume = isOnAir
+                        ? Math.min(
+                            1,
+                            nextVolume *
+                              deliveryGain *
+                              (findStudioVoice(managed.target.voiceId)?.outputGain ?? 1),
+                          )
+                        : 0;
+                      managed.video.muted = !isOnAir;
                     }
                   }}
                   className="min-w-0 flex-1 accent-cyan-300"

@@ -131,14 +131,19 @@ const english = {
     "Used consistently by cast generation, prompts, studio imagery, and the real HeyGen avatar.",
   voiceCasting: "Voice casting",
   voiceCastingHelp:
-    "Choose and audition the voice before going live. Auto keeps the setup quick and assigns a different compatible voice to each AI guest.",
+    "Choose and audition the LiveAvatar voice used on air. Auto uses the recommended language- and sex-compatible casting and keeps every AI guest distinct.",
   onAirVoice: "On-air voice",
-  voiceAutomatic: "Auto — {voice}",
+  voiceAutomatic: "Auto recommended — {voice}",
   voiceDelivery: "Delivery",
   voiceNatural: "Natural conversation",
   voiceEnergetic: "Energetic and quick",
   voiceAuthoritative: "Calm authority",
   voicePreview: "Preview: {voice}",
+  voiceCharacterWarm: "warm premium",
+  voiceCharacterBright: "bright and natural",
+  voiceCharacterDirect: "young and direct",
+  voiceCharacterDeep: "deep and clean",
+  voiceCharacterDynamic: "dynamic",
   participantNamePlaceholder: "Guest name or on-air identity",
   participantRolePlaceholder: "Politician, journalist, expert, citizen…",
   humanBrief: "Editorial brief",
@@ -179,6 +184,37 @@ const english = {
   talkSettings: "Live format",
   talkSettingsIntro:
     "Choose the studio, runtime limits, guest interaction, and default AI engine. The host’s editorial line is configured separately.",
+  videoMode: "Video production",
+  videoModeHelp:
+    "Choose the visual engine used for the live output. The discussion, cast identities and direction remain the same.",
+  videoModeLiveAvatar: "LiveAvatar",
+  videoModeLiveAvatarHelp:
+    "Production-ready talking avatars with native LiveAvatar video and voice.",
+  videoModeUnreal: "Studio 3D · Unreal",
+  videoModeUnrealHelp:
+    "Commercial MetaHuman lip-sync laboratory streamed by Unreal and Pixel Streaming.",
+  videoModeUnrealBeta: "Lip-sync lab",
+  videoModeUnrealNote:
+    "The current validation path is one persistent MetaHuman hero at 1080p. The five-person stage stays isolated until this baseline passes the complete stability and lip-sync gate.",
+  unrealStageIdle: "Studio 3D ready to start",
+  unrealStageStarting: "Starting Unreal and Pixel Streaming…",
+  unrealStageLive: "Unreal studio live",
+  unrealStageError: "Studio 3D is unavailable",
+  unrealServerChecking: "Checking the 3D server…",
+  unrealServerOff: "3D server is off",
+  unrealServerBooting: "3D server is starting",
+  unrealServerOnline: "Server on · Unreal is not ready",
+  unrealServerReady: "Server and Unreal are ready",
+  unrealServerStopping: "3D server is stopping",
+  unrealServerUnknown: "3D server status is unknown",
+  unrealServerStatusError: "3D server status is unavailable",
+  unrealStageLabBadge: "Unreal · commercial lip sync",
+  unrealStageLabTitle: "Single-hero benchmark: one persistent MetaHuman",
+  unrealStageAudio: "Generative programme voice",
+  unrealStageFaceValidation: "Commercial face solver",
+  unrealStageFaceReady: "Lip sync ready",
+  unrealStageHint:
+    "Unreal owns audible playback and facial inference on the same clock. A private readiness gate validates the real 1080p feed, frame pacing, groom stability and lip sync before the stream is shown.",
   studioTheme: "Studio scenery",
   studioThemeHelp:
     "Choose the atmosphere of the programme. It changes the visual set, not the editorial behavior of guests or host.",
@@ -388,14 +424,24 @@ const english = {
   runnerConfirmStart: "Go live",
   runnerAutoConfirm:
     "The director will run for up to {duration} minutes. The complete cast of up to {avatars} LiveAvatars connects before the first cue for immediate handoffs. Estimated maximum: about {credits} credits, plus LLM calls.",
+  runnerUnrealAutoConfirm:
+    "The director will run for up to {duration} minutes. Unreal starts one commercial MetaHuman validation stream; no LiveAvatar credits are used. Variable costs are the GPU runtime, generative speech, and LLM calls.",
   runnerPauseHelp:
     "While the current LiveAvatar speaks, the director prepares what comes next. Stop closes every video session immediately.",
+  runnerUnrealPauseHelp:
+    "While the MetaHuman speaks, the director prepares the next contribution. Stop closes the Unreal stream immediately.",
   runnerAudioHelp:
     "LiveAvatar generates the guest’s video, voice, expressions, and lip sync as one live stream.",
+  runnerUnrealAudioHelp:
+    "Unreal plays the generative programme voice and drives the commercial MetaHuman face model on the same clock.",
   runnerAudioPreparing: "LiveAvatar is preparing {name}’s synchronized intervention…",
+  runnerUnrealAudioPreparing:
+    "Preparing {name}’s generative voice and MetaHuman performance…",
   runnerAudioSpeaking: "On air now: {name}",
   runnerAudioError:
     "The LiveAvatar studio could not connect or play the intervention. The broadcast was stopped; check the connection and browser audio permission, then try again.",
+  runnerUnrealAudioError:
+    "The Unreal studio could not connect or play the intervention. The broadcast was stopped; check renderer health and try again.",
   runnerAiVoiceDisclosure:
     "The voices you hear are AI-generated, not human recordings.",
   runnerHumanHostDesk: "Human host desk",
@@ -481,6 +527,7 @@ const english = {
   studioPreview: "Studio preview",
   studioTextRunningBadge: "Talk in progress",
   studioConnectingBadge: "Connecting studio",
+  studioCueingBadge: "Next voice readying",
   studioReadyBadge: "Studio ready",
   studioAudioBlockedBadge: "Enable audio",
   studioRunCompletedBadge: "Talk completed",
@@ -492,8 +539,10 @@ const english = {
   studioReaction: "Reaction",
   studioAddressing: "To {name}",
   studioNextChapter: "Next chapter",
+  studioOpeningSoon: "Live shortly",
+  studioOpeningCast: "Studio link {current}/{total}",
   studioDirectorHelp:
-    "Live direction changes framing inside the same answer: cinematic push-ins, punch-ins, two-shots, reactions and breathing wide shots.",
+    "Automatic direction uses short two-shots for direct exchanges, holds brief answers, and adds at most three purposeful cuts to longer interventions.",
   studioLiveSystem: "LiveAvatar cast",
   studioLiveSystemHelp:
     "The complete AI cast connects in parallel before the first cue, so every later handoff is immediate and every guest remains visibly present.",
@@ -514,6 +563,8 @@ const english = {
   studioVoiceStartup: "voice startup",
   studioVoiceHandoff: "speaker handoff",
   studioEnableAudio: "Enable audio",
+  studioEnableCaptions: "Enable subtitles",
+  studioDisableCaptions: "Disable subtitles",
   studioStopLive: "Stop broadcast",
   studioVolume: "Volume",
   studioNotConfigured:
@@ -661,14 +712,19 @@ const italian: Record<TranslationKey, string> = {
     "Viene rispettato nella generazione del cast, nei prompt, nell’immagine in studio e nell’avatar HeyGen reale.",
   voiceCasting: "Casting della voce",
   voiceCastingHelp:
-    "Scegli e ascolta la voce prima della diretta. Auto mantiene la configurazione rapida e assegna una voce compatibile diversa a ogni ospite AI.",
+    "Scegli e ascolta la voce LiveAvatar usata in onda. Auto usa il casting consigliato compatibile con lingua e sesso e mantiene distinti gli ospiti AI.",
   onAirVoice: "Voce in onda",
-  voiceAutomatic: "Auto — {voice}",
+  voiceAutomatic: "Auto consigliata — {voice}",
   voiceDelivery: "Interpretazione",
   voiceNatural: "Conversazione naturale",
   voiceEnergetic: "Energica e rapida",
   voiceAuthoritative: "Autorevole e calma",
   voicePreview: "Ascolta: {voice}",
+  voiceCharacterWarm: "calda premium",
+  voiceCharacterBright: "brillante e naturale",
+  voiceCharacterDirect: "giovane e diretta",
+  voiceCharacterDeep: "profonda e pulita",
+  voiceCharacterDynamic: "dinamica",
   participantNamePlaceholder: "Nome dell’ospite o identità in onda",
   participantRolePlaceholder: "Politico, giornalista, esperto, cittadino…",
   humanBrief: "Brief editoriale",
@@ -709,6 +765,37 @@ const italian: Record<TranslationKey, string> = {
   talkSettings: "Formato della diretta",
   talkSettingsIntro:
     "Scegli lo studio, i limiti, la dinamica degli ospiti e il motore AI. La linea editoriale resta una scelta separata della conduzione.",
+  videoMode: "Produzione video",
+  videoModeHelp:
+    "Scegli il motore visivo dell’uscita in diretta. Discussione, identità del cast e regia restano le stesse.",
+  videoModeLiveAvatar: "LiveAvatar",
+  videoModeLiveAvatarHelp:
+    "Avatar parlanti pronti per la produzione con video e voce nativi LiveAvatar.",
+  videoModeUnreal: "Studio 3D · Unreal",
+  videoModeUnrealHelp:
+    "Laboratorio MetaHuman con labiale commerciale trasmesso da Unreal e Pixel Streaming.",
+  videoModeUnrealBeta: "Lab labiale",
+  videoModeUnrealNote:
+    "La validazione attuale usa un solo MetaHuman hero persistente a 1080p. Lo studio a cinque persone resta isolato finché questa base non supera il controllo completo di stabilità e labiale.",
+  unrealStageIdle: "Studio 3D pronto all’avvio",
+  unrealStageStarting: "Avvio di Unreal e Pixel Streaming…",
+  unrealStageLive: "Studio Unreal in onda",
+  unrealStageError: "Studio 3D non disponibile",
+  unrealServerChecking: "Controllo del server 3D…",
+  unrealServerOff: "Server 3D spento",
+  unrealServerBooting: "Server 3D in avvio",
+  unrealServerOnline: "Server acceso · Unreal non pronto",
+  unrealServerReady: "Server e Unreal pronti",
+  unrealServerStopping: "Server 3D in arresto",
+  unrealServerUnknown: "Stato del server 3D sconosciuto",
+  unrealServerStatusError: "Stato del server 3D non disponibile",
+  unrealStageLabBadge: "Unreal · labiale commerciale",
+  unrealStageLabTitle: "Benchmark a un volto: un MetaHuman hero persistente",
+  unrealStageAudio: "Voce generativa di programma",
+  unrealStageFaceValidation: "Solver facciale commerciale",
+  unrealStageFaceReady: "Labiale pronto",
+  unrealStageHint:
+    "Unreal gestisce audio udibile e inferenza facciale sullo stesso clock. Un controllo privato verifica il vero feed 1080p, la regolarità dei frame, la stabilità dei capelli e il labiale prima di mostrare lo stream.",
   studioTheme: "Scenografia dello studio",
   studioThemeHelp:
     "Scegli l’atmosfera della trasmissione. Cambia il set visivo, non il comportamento editoriale di ospiti o conduttore.",
@@ -919,14 +1006,24 @@ const italian: Record<TranslationKey, string> = {
   runnerConfirmStart: "Vai in onda",
   runnerAutoConfirm:
     "La regia condurrà la diretta per un massimo di {duration} minuti. Il cast completo, fino a {avatars} LiveAvatar, viene collegato prima del primo intervento per cambi immediati. Stima massima: circa {credits} crediti, oltre alle chiamate LLM.",
+  runnerUnrealAutoConfirm:
+    "La regia condurrà la diretta per un massimo di {duration} minuti. Unreal avvia un solo stream di validazione con il MetaHuman commerciale: non vengono usati crediti LiveAvatar. I costi variabili sono GPU, voce generativa e chiamate LLM.",
   runnerPauseHelp:
     "Mentre il LiveAvatar corrente parla, la regia prepara ciò che viene dopo. Ferma chiude immediatamente tutte le sessioni video.",
+  runnerUnrealPauseHelp:
+    "Mentre il MetaHuman parla, la regia prepara l’intervento successivo. Ferma chiude immediatamente lo stream Unreal.",
   runnerAudioHelp:
     "LiveAvatar genera video, voce, espressioni e labiale dell’ospite in un unico stream live.",
+  runnerUnrealAudioHelp:
+    "Unreal riproduce la voce generativa di programma e pilota il modello facciale commerciale MetaHuman sullo stesso clock.",
   runnerAudioPreparing: "LiveAvatar prepara l’intervento sincronizzato di {name}…",
+  runnerUnrealAudioPreparing:
+    "Preparazione della voce generativa e della performance MetaHuman di {name}…",
   runnerAudioSpeaking: "Ora in onda: {name}",
   runnerAudioError:
     "Impossibile collegare lo studio LiveAvatar o riprodurre l’intervento. La diretta è stata fermata: controlla connessione e permessi audio del browser, poi riprova.",
+  runnerUnrealAudioError:
+    "Impossibile collegare lo studio Unreal o riprodurre l’intervento. La diretta è stata fermata: controlla lo stato del renderer e riprova.",
   runnerAiVoiceDisclosure:
     "Le voci che ascolti sono generate dall’AI, non registrazioni umane.",
   runnerHumanHostDesk: "Console del conduttore umano",
@@ -1012,6 +1109,7 @@ const italian: Record<TranslationKey, string> = {
   studioPreview: "Anteprima studio",
   studioTextRunningBadge: "Talk in corso",
   studioConnectingBadge: "Collegamento studio",
+  studioCueingBadge: "Prossima voce in preparazione",
   studioReadyBadge: "Studio pronto",
   studioAudioBlockedBadge: "Attiva audio",
   studioRunCompletedBadge: "Talk concluso",
@@ -1023,8 +1121,10 @@ const italian: Record<TranslationKey, string> = {
   studioReaction: "Reazione",
   studioAddressing: "A {name}",
   studioNextChapter: "Nuovo capitolo",
+  studioOpeningSoon: "Tra poco in diretta",
+  studioOpeningCast: "Collegamento studio {current}/{total}",
   studioDirectorHelp:
-    "La regia cambia inquadratura nello stesso intervento: push-in cinematografici, dettagli, confronti, reazioni e campi larghi di respiro.",
+    "La regia apre gli scambi diretti a due, lascia respirare le risposte brevi e usa al massimo tre stacchi motivati negli interventi lunghi.",
   studioLiveSystem: "Cast LiveAvatar",
   studioLiveSystemHelp:
     "L’intero cast AI si collega in parallelo prima del primo intervento: i cambi successivi sono immediati e ogni ospite resta visibilmente presente.",
@@ -1045,6 +1145,8 @@ const italian: Record<TranslationKey, string> = {
   studioVoiceStartup: "avvio della voce",
   studioVoiceHandoff: "cambio partecipante",
   studioEnableAudio: "Attiva audio",
+  studioEnableCaptions: "Attiva sottotitoli",
+  studioDisableCaptions: "Disattiva sottotitoli",
   studioStopLive: "Ferma diretta",
   studioVolume: "Volume",
   studioNotConfigured:

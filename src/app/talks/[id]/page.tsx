@@ -329,6 +329,16 @@ export default async function TalkPage({ params }: TalkPageProps) {
               </dd>
             </div>
             <div className="flex items-center justify-between gap-4 py-3">
+              <dt className="text-slate-500">{t("videoMode")}</dt>
+              <dd className="max-w-40 text-right font-semibold">
+                {t(
+                  talk.settings.videoMode === "unreal"
+                    ? "videoModeUnreal"
+                    : "videoModeLiveAvatar",
+                )}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between gap-4 py-3">
               <dt className="text-slate-500">{t("studioTheme")}</dt>
               <dd className="max-w-40 text-right font-semibold">
                 {t(studioThemeKey(talk.settings.studioTheme))}

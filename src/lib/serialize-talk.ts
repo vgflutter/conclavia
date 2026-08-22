@@ -9,6 +9,7 @@ import {
   normalizeStudioTheme,
 } from "@/lib/studio-themes";
 import { findStudioVoice } from "@/lib/liveavatar-catalog";
+import { normalizeTalkOnAirNames } from "@/lib/on-air-names";
 
 function voiceDelivery(value: unknown) {
   return value === "energetic" || value === "authoritative"
@@ -17,7 +18,7 @@ function voiceDelivery(value: unknown) {
 }
 
 export function serializeTalk(talk: TalkDocument): TalkResponse {
-  return {
+  return normalizeTalkOnAirNames({
     id: talk._id.toString(),
     title: talk.title,
     topic: talk.topic,
@@ -77,6 +78,7 @@ export function serializeTalk(talk: TalkDocument): TalkResponse {
     settings: {
       maxTurns: talk.settings.maxTurns,
       targetDurationMinutes: talk.settings.targetDurationMinutes ?? 30,
+      videoMode: talk.settings.videoMode === "unreal" ? "unreal" : "liveavatar",
       studioTheme: normalizeStudioTheme(
         talk.settings.studioTheme ?? DEFAULT_STUDIO_THEME,
       ),
@@ -91,5 +93,5 @@ export function serializeTalk(talk: TalkDocument): TalkResponse {
     },
     createdAt: talk.createdAt.toISOString(),
     updatedAt: talk.updatedAt.toISOString(),
-  };
+  });
 }

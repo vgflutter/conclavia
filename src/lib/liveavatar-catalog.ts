@@ -5,23 +5,28 @@ export interface StudioVoice {
   name: string;
   sex: ParticipantSex;
   language: "it" | "en";
+  character: "warm" | "bright" | "direct" | "deep" | "dynamic";
+  outputGain: number;
 }
 
-// A deliberately small on-air shortlist. Every entry is a public LiveAvatar
-// voice with a preview endpoint; keeping the list curated makes casting usable.
+// A deliberately small on-air shortlist from the LiveAvatar voice library.
+// `language` is the target locale we have assigned in Conclavia, not the
+// provider's catalog metadata (the current public library labels every preset
+// voice as English). Italian sessions therefore use LiveAvatar's multilingual
+// synthesis model and should always be auditioned before a production run.
 export const STUDIO_VOICES: readonly StudioVoice[] = [
-  { id: "ac4a161e-2160-43d5-ba02-4cecbe8b3393", name: "Luca Brasi", sex: "male", language: "it" },
-  { id: "bcfbff2a-ab47-46e4-914d-1b3066b8a62b", name: "Giovanni Rossi", sex: "male", language: "it" },
-  { id: "1117684b-8b5b-463f-97d5-9b21c06b6c1b", name: "Carmelo La Rosa", sex: "male", language: "it" },
-  { id: "09b4de14-a09b-4e89-946f-d8cce012f100", name: "Linda Fiore", sex: "female", language: "it" },
-  { id: "254ffe1e-c89f-430f-8c36-9e7611d310c0", name: "Elenora", sex: "female", language: "it" },
-  { id: "c84af063-5ce2-4370-8ef8-dcd0ef903d43", name: "Alessandra", sex: "female", language: "it" },
-  { id: "e04e9d57-853f-4d72-a8ff-8e3c768f4c9c", name: "Graham", sex: "male", language: "en" },
-  { id: "98a984cd-5f25-49b1-8844-2195c3d50e0f", name: "Pedro", sex: "male", language: "en" },
-  { id: "83a26e3f-bcff-4887-80a2-17531c342c9e", name: "Thaddeus", sex: "male", language: "en" },
-  { id: "e948b062-7dce-4f2b-bcf6-98bd3511106b", name: "Amina", sex: "female", language: "en" },
-  { id: "3607df3c-9de0-4274-b0be-7e035775ead5", name: "Anastasia", sex: "female", language: "en" },
-  { id: "864a26b8-bfba-4435-9cc5-1dd593de5ca7", name: "Katya", sex: "female", language: "en" },
+  { id: "bcfbff2a-ab47-46e4-914d-1b3066b8a62b", name: "Giovanni Rossi", sex: "male", language: "it", character: "warm", outputGain: 1 },
+  { id: "1117684b-8b5b-463f-97d5-9b21c06b6c1b", name: "Carmelo La Rosa", sex: "male", language: "it", character: "deep", outputGain: 1 },
+  { id: "ac4a161e-2160-43d5-ba02-4cecbe8b3393", name: "Luca Brasi", sex: "male", language: "it", character: "direct", outputGain: 1 },
+  { id: "254ffe1e-c89f-430f-8c36-9e7611d310c0", name: "Elenora", sex: "female", language: "it", character: "warm", outputGain: 1 },
+  { id: "09b4de14-a09b-4e89-946f-d8cce012f100", name: "Linda Fiore", sex: "female", language: "it", character: "bright", outputGain: 1 },
+  { id: "c84af063-5ce2-4370-8ef8-dcd0ef903d43", name: "Alessandra", sex: "female", language: "it", character: "dynamic", outputGain: 1 },
+  { id: "e04e9d57-853f-4d72-a8ff-8e3c768f4c9c", name: "Graham", sex: "male", language: "en", character: "warm", outputGain: 1 },
+  { id: "98a984cd-5f25-49b1-8844-2195c3d50e0f", name: "Pedro", sex: "male", language: "en", character: "direct", outputGain: 1 },
+  { id: "83a26e3f-bcff-4887-80a2-17531c342c9e", name: "Thaddeus", sex: "male", language: "en", character: "deep", outputGain: 1 },
+  { id: "e948b062-7dce-4f2b-bcf6-98bd3511106b", name: "Amina", sex: "female", language: "en", character: "bright", outputGain: 1 },
+  { id: "3607df3c-9de0-4274-b0be-7e035775ead5", name: "Anastasia", sex: "female", language: "en", character: "warm", outputGain: 1 },
+  { id: "864a26b8-bfba-4435-9cc5-1dd593de5ca7", name: "Katya", sex: "female", language: "en", character: "dynamic", outputGain: 1 },
 ] as const;
 
 export function findStudioVoice(id: string): StudioVoice | undefined {

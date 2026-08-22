@@ -1,0 +1,106 @@
+--- a/Source/RuntimeMetaHumanLipSync/Public/BlendRealisticMetaHumanLipSyncAnimNode.h
++++ b/Source/RuntimeMetaHumanLipSync/Public/BlendRealisticMetaHumanLipSyncAnimNode.h
+@@
+ private:
++    /** Independent life layer applied after the commercial facial solve. */
++    float NaturalBlinkCountdown = 1.25f;
++    float NaturalBlinkElapsed = 0.0f;
++    float NaturalBlinkValue = 0.0f;
++    uint32 NaturalBlinkRandomState = 0xA341316Cu;
++    bool bNaturalBlinkActive = false;
++
++    float NextNaturalBlinkRandom();
++    void UpdateNaturalBlink(float DeltaTime);
++
+     /** Current control values for smooth interpolation */
+     TMap<FString, float> CurrentControlValues;
+--- a/Source/RuntimeMetaHumanLipSync/Private/BlendRealisticMetaHumanLipSyncAnimNode.cpp
++++ b/Source/RuntimeMetaHumanLipSync/Private/BlendRealisticMetaHumanLipSyncAnimNode.cpp
+@@
+ void FAnimNode_BlendRealisticMetaHumanLipSync::Initialize_AnyThread(const FAnimationInitializeContext& Context)
+ {
+	SourcePose.Initialize(Context);
++	NaturalBlinkRandomState ^= PointerHash(this);
++	NaturalBlinkCountdown = 0.60f + NextNaturalBlinkRandom() * 0.90f;
+ }
++
++float FAnimNode_BlendRealisticMetaHumanLipSync::NextNaturalBlinkRandom()
++{
++	NaturalBlinkRandomState = NaturalBlinkRandomState * 1664525u + 1013904223u;
++	return static_cast<float>(NaturalBlinkRandomState & 0x00FFFFFFu)
++		/ static_cast<float>(0x01000000u);
++}
++
++void FAnimNode_BlendRealisticMetaHumanLipSync::UpdateNaturalBlink(const float DeltaTime)
++{
++	const float Dt = FMath::Clamp(DeltaTime, 0.0f, 0.05f);
++	if (!bNaturalBlinkActive)
++	{
++		NaturalBlinkCountdown -= Dt;
++		NaturalBlinkValue = 0.0f;
++		if (NaturalBlinkCountdown <= 0.0f)
++		{
++			bNaturalBlinkActive = true;
++			NaturalBlinkElapsed = 0.0f;
++		}
++		return;
++	}
++
++	NaturalBlinkElapsed += Dt;
++	constexpr float CloseDuration = 0.100f;
++	constexpr float HoldDuration = 0.070f;
++	constexpr float OpenDuration = 0.170f;
++	constexpr float TotalDuration = CloseDuration + HoldDuration + OpenDuration;
++	if (NaturalBlinkElapsed < CloseDuration)
++	{
++		NaturalBlinkValue = FMath::SmoothStep(
++			0.0f, 1.0f, NaturalBlinkElapsed / CloseDuration);
++	}
++	else if (NaturalBlinkElapsed < CloseDuration + HoldDuration)
++	{
++		NaturalBlinkValue = 1.0f;
++	}
++	else if (NaturalBlinkElapsed < TotalDuration)
++	{
++		NaturalBlinkValue = 1.0f - FMath::SmoothStep(
++			0.0f,
++			1.0f,
++			(NaturalBlinkElapsed - CloseDuration - HoldDuration) / OpenDuration);
++	}
++	else
++	{
++		NaturalBlinkValue = 0.0f;
++		NaturalBlinkElapsed = 0.0f;
++		bNaturalBlinkActive = false;
++		NaturalBlinkCountdown = 1.80f + NextNaturalBlinkRandom() * 2.00f;
++	}
++}
+@@
+ void FAnimNode_BlendRealisticMetaHumanLipSync::Update_AnyThread(const FAnimationUpdateContext& Context)
+ {
+	SourcePose.Update(Context);
+	GetEvaluateGraphExposedInputs().Execute(Context);
++	UpdateNaturalBlink(Context.GetDeltaTime());
+@@
+	for (const auto& Pair : SolverControlMap)
+	{
+@@
+	}
++
++	// The marketplace solver deliberately leaves eye curves to the source pose.
++	// Apply the independent blink last so Face_AnimBP cannot overwrite it.
++#if UE_VERSION_OLDER_THAN(5, 3, 0)
++	if (USkeleton* Skeleton = Output.AnimInstanceProxy->GetSkeleton())
++	{
++		const SmartName::UID_Type LeftUid = Skeleton->GetUIDByName(
++			USkeleton::AnimCurveMappingName, TEXT("CTRL_expressions_eyeBlinkL"));
++		const SmartName::UID_Type RightUid = Skeleton->GetUIDByName(
++			USkeleton::AnimCurveMappingName, TEXT("CTRL_expressions_eyeBlinkR"));
++		if (LeftUid != SmartName::MaxUID) Output.Curve.Set(LeftUid, NaturalBlinkValue);
++		if (RightUid != SmartName::MaxUID) Output.Curve.Set(RightUid, NaturalBlinkValue * 0.985f);
++	}
++#else
++	Output.Curve.Set(TEXT("CTRL_expressions_eyeBlinkL"), NaturalBlinkValue);
++	Output.Curve.Set(TEXT("CTRL_expressions_eyeBlinkR"), NaturalBlinkValue * 0.985f);
++#endif
+ }

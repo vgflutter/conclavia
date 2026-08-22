@@ -10,10 +10,10 @@ import {
   getTalkRunBlockCode,
 } from "@/lib/talk-run-compatibility";
 import {
-  StudioStage,
   type BroadcastAudioState,
   type StudioStageHandle,
 } from "@/components/StudioStage";
+import { StudioSurface } from "@/components/StudioSurface";
 import type { TalkResponse } from "@/types/talk";
 import type { AudienceRoomResponse } from "@/types/audience";
 import type {
@@ -163,6 +163,7 @@ export function TalkRunner({
   const studioRef = useRef<StudioStageHandle | null>(null);
   const liveTalk = run?.talkSnapshot ?? talk;
   const blockCode = getTalkRunBlockCode(liveTalk);
+  const usesUnreal = liveTalk.settings.videoMode === "unreal";
 
   useEffect(() => {
     const runId = run?.id;
@@ -249,18 +250,22 @@ export function TalkRunner({
   async function playMessage(message: TalkRunMessageResponse): Promise<void> {
     if (stopRequested.current) return;
     try {
-      if (!studioRef.current) throw new Error("LiveAvatar studio unavailable");
+      if (!studioRef.current) throw new Error("Video studio unavailable");
       await studioRef.current.speak(message);
     } catch {
       if (stopRequested.current) return;
       stopRequested.current = true;
       setBroadcastAudioState("error");
       setNarratingMessage(null);
-      setError(t("runnerAudioError"));
+      setError(t(usesUnreal ? "runnerUnrealAudioError" : "runnerAudioError"));
     }
   }
 
   function queueMessage(message: TalkRunMessageResponse): Promise<void> {
+    // The next turn is generated while the current person is still speaking.
+    // Start voice synthesis immediately as well, so the queued turn can go on
+    // air without adding a complete Polly round trip between speakers.
+    void studioRef.current?.prepareMessage?.(message).catch(() => undefined);
     const queued = speechQueue.current
       .catch(() => undefined)
       .then(() => playMessage(message));
@@ -458,7 +463,7 @@ export function TalkRunner({
   async function runAutomatically(startingRun: TalkRunResponse | null = run) {
     if (!startingRun || startingRun.status === "completed") return;
     if (!studioRef.current) {
-      setError(t("runnerAudioError"));
+      setError(t(usesUnreal ? "runnerUnrealAudioError" : "runnerAudioError"));
       return;
     }
 
@@ -474,7 +479,9 @@ export function TalkRunner({
         stopRequested.current = true;
         activeRequest.current?.abort();
         setError(
-          caught instanceof Error ? caught.message : t("runnerAudioError"),
+          caught instanceof Error
+            ? caught.message
+            : t(usesUnreal ? "runnerUnrealAudioError" : "runnerAudioError"),
         );
         return false;
       });
@@ -508,7 +515,7 @@ export function TalkRunner({
 
   async function startNewBroadcast() {
     if (!studioRef.current) {
-      setError(t("runnerAudioError"));
+      setError(t(usesUnreal ? "runnerUnrealAudioError" : "runnerAudioError"));
       return;
     }
     const studioStartup = studioRef.current.startLiveStudio();
@@ -592,10 +599,10 @@ export function TalkRunner({
           {t("runnerConfirmTitle")}
         </h2>
         <p className="mt-2 text-sm leading-6 text-slate-600">
-          {t("runnerAutoConfirm", {
+          {t(usesUnreal ? "runnerUnrealAutoConfirm" : "runnerAutoConfirm", {
             avatars: avatarCount,
             duration: liveTalk.settings.targetDurationMinutes,
-            credits: avatarCount * liveTalk.settings.targetDurationMinutes * 2,
+            credits: avatarCount * liveTalk.settings.targetDurationMinutes,
           })}
         </p>
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -636,7 +643,7 @@ export function TalkRunner({
         <>
           <main className="fixed inset-0 z-[80] flex items-center bg-black">
             <div className="relative w-full">
-              <StudioStage
+              <StudioSurface
                 ref={studioRef}
                 talk={liveTalk}
                 run={null}
@@ -685,7 +692,7 @@ export function TalkRunner({
     return (
       <>
         <div className="space-y-5">
-          <StudioStage
+          <StudioSurface
             ref={studioRef}
             talk={liveTalk}
             run={null}
@@ -750,13 +757,12 @@ export function TalkRunner({
       <>
         <main className="group fixed inset-0 z-[80] flex items-center bg-black">
           <div className="relative w-full">
-            <StudioStage
+            <StudioSurface
               ref={studioRef}
               talk={liveTalk}
               run={run}
               presentation="broadcast"
               activePlan={visiblePlan}
-              streamingContent={streamingContent}
               broadcastAudioState={broadcastAudioState}
               broadcastMessage={narratingMessage ?? undefined}
               audienceOverlay={audience?.activeMessage}
@@ -826,12 +832,11 @@ export function TalkRunner({
   return (
     <>
       <div className="space-y-5">
-      <StudioStage
+      <StudioSurface
         ref={studioRef}
         talk={liveTalk}
         run={run}
         activePlan={visiblePlan}
-        streamingContent={streamingContent}
         broadcastAudioState={broadcastAudioState}
         broadcastMessage={narratingMessage ?? undefined}
         audienceOverlay={audience?.activeMessage}
@@ -936,16 +941,22 @@ export function TalkRunner({
         </div>
         {broadcastAudioState === "loading" && narratingMessage ? (
           <p className="mt-3 text-xs font-medium text-cyan-700" role="status">
-            {t("runnerAudioPreparing", { name: narratingMessage.speakerName })}
+            {t(usesUnreal ? "runnerUnrealAudioPreparing" : "runnerAudioPreparing", {
+              name: narratingMessage.speakerName,
+            })}
           </p>
         ) : broadcastAudioState === "speaking" && narratingMessage ? (
           <p className="mt-3 text-xs font-medium text-emerald-700" role="status">
             {t("runnerAudioSpeaking", { name: narratingMessage.speakerName })}
           </p>
         ) : autoRunning ? (
-          <p className="mt-3 text-xs text-slate-500">{t("runnerPauseHelp")}</p>
+          <p className="mt-3 text-xs text-slate-500">
+            {t(usesUnreal ? "runnerUnrealPauseHelp" : "runnerPauseHelp")}
+          </p>
         ) : !completed ? (
-          <p className="mt-3 text-xs text-slate-500">{t("runnerAudioHelp")}</p>
+          <p className="mt-3 text-xs text-slate-500">
+            {t(usesUnreal ? "runnerUnrealAudioHelp" : "runnerAudioHelp")}
+          </p>
         ) : null}
         <p className="mt-2 text-xs text-slate-400">
           {t("runnerAiVoiceDisclosure")}

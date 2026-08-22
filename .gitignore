@@ -14,3 +14,6 @@ npm-debug.log*
 .DS_Store
 *.tsbuildinfo
 next-env.d.ts
+
+# Private Unreal Marketplace plugins are installed on the renderer host only.
+/unreal/ConclaviaStudio/Plugins/RuntimeMetaHumanLipSync/
