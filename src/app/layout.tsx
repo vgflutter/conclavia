@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import { Header } from "@/components/Header";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { getRequestLocale } from "@/i18n/server";
-import { translate } from "@/i18n/translations";
 
 import "./globals.css";
 
@@ -15,7 +14,10 @@ export async function generateMetadata(): Promise<Metadata> {
       default: "Conclavia",
       template: "%s · Conclavia",
     },
-    description: translate(locale, "appDescription"),
+    description:
+      locale === "it"
+        ? "Un collega digitale con avatar per meeting singoli e ricorrenti."
+        : "A digital colleague with an avatar for single and recurring meetings.",
   };
 }
 

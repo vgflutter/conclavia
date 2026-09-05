@@ -3,6 +3,7 @@
 
 # Next.js output
 /.next
+/.next-e2e
 /out
 
 # local environment files
@@ -14,6 +15,5 @@ npm-debug.log*
 .DS_Store
 *.tsbuildinfo
 next-env.d.ts
-
-# Private Unreal Marketplace plugins are installed on the renderer host only.
-/unreal/ConclaviaStudio/Plugins/RuntimeMetaHumanLipSync/
+/playwright-report
+/test-results

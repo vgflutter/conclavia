@@ -5,7 +5,7 @@ import {
   LOCALE_COOKIE,
   localeFromLanguageTag,
   type Locale,
-} from "@/i18n/translations";
+} from "@/i18n/locale";
 
 export async function getRequestLocale(): Promise<Locale> {
   const cookieLocale = (await cookies()).get(LOCALE_COOKIE)?.value;

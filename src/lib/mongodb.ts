@@ -10,8 +10,6 @@ function getMongoUri(): string {
   return uri;
 }
 
-const MONGODB_URI = getMongoUri();
-
 interface MongooseCache {
   connection: typeof mongoose | null;
   promise: Promise<typeof mongoose> | null;
@@ -33,8 +31,9 @@ export async function connectToDatabase(): Promise<typeof mongoose> {
     return cache.connection;
   }
 
-  cache.promise ??= mongoose.connect(MONGODB_URI, {
+  cache.promise ??= mongoose.connect(getMongoUri(), {
     bufferCommands: false,
+    serverSelectionTimeoutMS: 10_000,
   });
 
   try {

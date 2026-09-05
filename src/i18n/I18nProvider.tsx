@@ -13,14 +13,11 @@ import { useRouter } from "next/navigation";
 import {
   LOCALE_COOKIE,
   type Locale,
-  translate,
-  type TranslationKey,
-} from "@/i18n/translations";
+} from "@/i18n/locale";
 
 interface I18nContextValue {
   locale: Locale;
   setLocale: (locale: Locale) => void;
-  t: (key: TranslationKey, values?: Record<string, string | number>) => string;
 }
 
 const I18nContext = createContext<I18nContextValue | null>(null);
@@ -49,7 +46,6 @@ export function I18nProvider({
     () => ({
       locale,
       setLocale,
-      t: (key, values) => translate(locale, key, values),
     }),
     [locale, setLocale],
   );

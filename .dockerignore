@@ -1,0 +1,11 @@
+.git
+.next
+.next-e2e
+node_modules
+npm-debug.log*
+.env*
+!.env.example
+.DS_Store
+*.tsbuildinfo
+playwright-report
+test-results

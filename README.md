@@ -1,487 +1,184 @@
 <p align="center">
-  <img src="public/conclavia-logo.png" alt="Conclavia" width="720" />
+  <img src="public/conclavia-logo.png" alt="Conclavia" width="520" />
 </p>
 
 <p align="center">
-  An open-source control room for live-format talks with AI and human guests.
+  A digital colleague for Microsoft Teams that follows the agenda, answers in the meeting, and carries memory into the next appointment.
 </p>
 
-# Conclavia
+# Conclavia Meeting Assistant
 
-Conclavia is designed to reproduce a live current-affairs programme: five in-studio seats can be occupied by AI agents or people, while an optional human or AI host controls the editorial direction. The current MVP persists the complete format, runs an evolving multi-agent debate, and presents it inside an experimental virtual studio with automatic camera direction.
+Conclavia is a focused, single-workspace meeting assistant. The product contains three areas only:
 
-The main automatic broadcast warms the complete AI cast in parallel before the first cue, composites every synchronized video stream into the five-seat studio, and sends each generated intervention to the correct avatar. LiveAvatar FULL supplies voice, motion, expressions, and lip sync as one synchronized stream, while OpenAI or Gemini may supply only the debate text and editorial direction.
+- **Meetings** for one appointment or a series of Microsoft Teams meetings.
+- **Memory** for remembered facts, decisions, actions, questions, and summaries.
+- **Avatar** for the digital colleague's identity, personality, voice, expressions, and hand raise.
 
-<p align="center">
-  <img src="docs/images/after-hours-live-punch-in.png" alt="Conclavia After Hours live punch-in for a One Piece studio debate" width="1086" />
-  <br />
-  <sub>A real English LiveAvatar frame captured on air in After Hours: synchronized voice, lip sync, GPU keying, captions and a tight automatic punch-in.</sub>
-</p>
+The management interface works without a meeting provider. Automatic Teams entry is fail-closed and becomes available only after every required integration setting is present.
 
-<p align="center">
-  <img src="docs/images/after-hours-five-guests.png" alt="Five casual guests in the Conclavia After Hours podcast set" width="1086" />
-  <br />
-  <sub>The five-seat After Hours preview: a cinematic creator-podcast lounge with depth staging, individual microphones and a smoked-glass foreground desk.</sub>
-</p>
+## Product tour
 
-## How the MVP works
+### Avatar and voice test
 
-1. Create an episode and define its central question, language, real airtime target, and live format.
-2. Build the five-seat cast using AI guests, people, or open draft seats.
-3. Optionally add a host and choose an impartial, confrontational, or synthesizing editorial line.
-4. Open the live studio: an invisible director moves the discussion through positions, central conflict, examination, synthesis, and conclusion.
-5. Follow every intervention while it streams; in automatic mode the next useful guest can begin preparing from claims that are already explicit before the current speaker finishes.
-6. At selected milestones, an off-air editorial checkpoint determines what evolved, what still needs testing, and whether an honest conclusion is available.
-7. Every completed message, its conversational intent, and the updated editorial state are persisted in MongoDB.
-8. A person selected by the director receives a persistent on-air input desk; their intervention then affects the same memories, conflicts, and conclusion as an AI contribution.
-9. The main live action connects the complete AI cast before the first cue, routes every contribution to the correct synchronized video and voice stream, and exposes one stop action for the complete broadcast.
-10. During a YouTube stream, the audience desk receives public chat messages and lets the control room show one on air, hand it to the host, direct it to a guest, or use it as an unattributed editorial prompt.
+The avatar can be tested independently from a meeting, including Italian and English voice, facial mood, audio-driven lip sync, and hand raise.
 
-Creating the persisted run does not call a provider. Starting the studio enables the broadcast and opens the declared AI cast sessions together. This trades a single controlled startup for immediate later handoffs, live listening motion from every connected guest, and no per-speaker connection pause. Each generated intervention is a separate LLM request, while selected editorial checkpoints make an additional structured-output request. Editorial checkpoints and preparation of the following turn continue off-air while the current guest speaks.
+![Conclavia avatar test](docs/images/avatar-test.png)
 
-## Current MVP
+### One meeting or a series
 
-### Configuration
+Every meeting has an objective, a Teams link, a date, and an agenda whose items can be mandatory or optional. A series can contain up to 24 appointments with different Teams links.
 
-- Persist, edit, duplicate, inspect, and delete talks in MongoDB.
-- Configure exactly five seats as AI guests, people, or open draft slots.
-- Generate a coherent or surprising cast from the central question, then edit or regenerate any guest.
-- Choose a custom, automatic, or random perspective and keep each AI guest’s goals, boundaries, style, traits, model, and identity stable.
-- Add an optional AI or human host with an independent editorial line.
-- Choose Italian or English, duration, pace, studio theme, video engine, and a constrained OpenAI/Gemini model catalog. New episodes start from the cinematic After Hours podcast lounge rather than a conventional TV set.
-- Derive `draft` or `ready` automatically and validate data both server-side and at the Mongoose boundary.
+![Create a Conclavia meeting](docs/images/new-meeting.png)
 
-### Conversation engine
+### Shared meeting memory
 
-- Select the next useful speaker dynamically instead of following a fixed round robin.
-- Persist the discussion thread, participant memories, contested claims, open questions, agreements, conflicts, and a semantic floor queue.
-- Vary intentions and duration across replies, challenges, interruptions, questions, clarifications, arguments, and partial agreements.
-- Move through positions → conflict → examination → synthesis → conclusion, with periodic editorial checkpoints and an explicit outcome dossier.
-- Stream and persist every contribution, prepare the following turn while the current one is on air, and pause cleanly for guided human input.
-- Freeze the complete talk snapshot inside every run and record model and usage metadata for each generated intervention.
+Completed appointments contribute their summary, remembered facts, decisions, open actions, and questions to the next appointment in the same series.
 
-### Live studio and broadcast output
+![Conclavia meeting series and shared memory](docs/images/meeting-series.png)
 
-- Select either **LiveAvatar** or **Studio 3D · Unreal** per episode. The choice is persisted with the talk and frozen into each run snapshot; both modes use the same discussion engine and director cues.
-- Present the talk in a responsive 16:9 five-seat studio with ten selectable visual themes, explicitly grouped into **Pop / creator** and **Editorial / authoritative** families. After Hours is the flagship creator set; Electric Commons, Soft Social and Broadcast Panel provide the more controlled editorial direction.
-- Connect the complete LiveAvatar FULL cast in parallel and let LiveAvatar produce voice, synchronized video, expressions, and lip sync—without browser TTS, external PCM generation, or a static broadcast fallback.
-- Keep stable, language-appropriate avatars and independently cast voices; respect each configured guest’s sex and let the operator audition every shortlisted voice before going live.
-- Offer a deliberately short LiveAvatar voice catalog plus natural, energetic, and authoritative delivery profiles. English uses the low-latency Eleven Flash 2.5 model; Italian uses Eleven Multilingual v2, speaker boost, and a faster broadcast cadence to improve pronunciation without making the programme drag. Pace remains bounded between `0.98×` and `1.18×`.
-- Refresh a guest session before it can expire during an intervention; an idle expired session reconnects on its next assignment without stopping the studio.
-- Adapt the camera grammar to the selected family. Pop direction reaches punch-ins and reactions earlier; editorial direction holds shots longer and gives two-shots and wide cuts more breathing room. Manual overrides remain in the control room.
-- Request LiveAvatar’s `very_high` 1080p H.264 stream when the account supports it, fall back explicitly to `high` on plans that reject 1080p, and scale WebGL compositing dynamically for the active close-up while keeping inactive seats lightweight.
-- Route the current LiveAvatar speaker directly to the browser output and hard-mute every other stream. Per-voice and per-delivery trims keep levels controlled, while the direct media path avoids losing programme audio behind a suspended Web Audio context.
-- Measure command-to-voice startup and the silence between consecutive speakers inside the control room, so perceived latency is observable instead of guessed.
-- Show `On air` only after media is active, expose one immediate stop action, and keep technical telemetry collapsed until needed.
-- Provide a separate clean `/broadcast` output with a moving startup slate, animated lower thirds, optional speech-synchronized subtitles, editorial stingers, and a final-result card for OBS, YouTube, or a projector. The startup slate turns the parallel avatar connection into an intentional programme opening; chapter stingers run while LiveAvatar prepares the next voice and clear on the real first syllable instead of delaying or covering speech. Subtitles are off by default and can be switched across the control-room and broadcast tabs.
-- Support one local human camera after explicit browser permission while credentials, avatar allow-lists, and timeouts remain server-side.
-- Connect a YouTube live chat to the current run, optionally require manual approval, and persist every selected audience cue alongside the resulting intervention.
+## Meeting behavior
 
-## UX principles
+The wake phrase is **“Conclavia…”**. Four commands are supported in Italian and English:
 
-- **Useful defaults first:** the central question, AI-assisted cast, duration, pace, model, and theme are enough for most episodes.
-- **Everything remains editable:** automation starts the configuration; it never locks the user into an AI choice.
-- **Complexity on demand:** cast composition, turn dynamics, safety ceilings, participant traits, and LiveAvatar telemetry remain available behind focused controls.
-- **Costs are explicit:** a clear preflight dialog shows duration, possible LiveAvatar count, and maximum estimated credits before going live.
-- **Audience and production stay separate:** the default runner is a clean viewing experience; editorial state and provider details live in the control-room view.
+- **Remember** stores an explicit fact in the current meeting memory.
+- **Summarize** creates a spoken summary and stores it as the meeting overview.
+- **Answer** responds from the current transcript and shared series memory.
+- **Verify** checks a statement against known meeting facts and decisions.
 
-## Tech stack
+When the correction policy is set to important inaccuracies, Conclavia periodically checks substantive statements against reliable stored memory. It speaks only when a clear, material conflict is found. The checks are rate-limited to control cost and interruptions.
 
-- [Next.js](https://nextjs.org/) with App Router
-- TypeScript in strict mode
-- Tailwind CSS
-- MongoDB
-- Mongoose
+The assistant personality has two deliberately simple controls: response length and attitude. Those choices are included in the meeting prompt.
 
-## Studio 3D · Unreal broadcast path
+## Runtime architecture
 
-The repository contains an experimental remote Unreal renderer in
-[`unreal/ConclaviaStudio`](unreal/ConclaviaStudio). Next.js remains the control
-room: choosing **Studio 3D · Unreal** starts the GPU renderer through a
-token-protected supervisor and embeds its Pixel Streaming output in the existing
-run and broadcast pages.
-
-The default web route now targets the isolated Unreal Engine 5.8 single-hero
-profile (`lipsync58`). It keeps one MetaHuman, one fixed portrait camera and one
-warmed instance of the purchased Runtime MetaHuman Lip Sync full-face model.
-Every programme voice is routed to that same physical face until this baseline
-proves that Unreal can outperform LiveAvatar without groom pops, frozen frames
-or timing drift. Mono PCM16 audio is played inside Unreal, so facial inference
-and audible playback use the same render clock. Amazon Polly Generative
-currently produces the Italian programme voice; OpenAI speech and browser
-speech synthesis are not used in this path. The last verified UE 5.6 profile is
-retained as an explicit rollback, not as the default renderer.
-
-The dedicated 1920×1080 broadcast player removes the stock Epic Pixel
-Streaming controls instead of covering the programme with development UI.
-Unreal targets a stable 30 fps while preserving Cine LOD0, strand hair,
-full-resolution subsurface skin and the commercial facial solver. Startup now
-uses a private browser as a real render-readiness gate: it waits for the 1080p
-decoded frame, warms shader/texture/groom resources and measures frame pacing
-and visual discontinuities around the head before the public Mac player is
-mounted. A connected-but-black WebRTC peer or a late-loading hairstyle can no
-longer be reported as ready.
-
-The earlier two-person and five-person stages remain in the repository as
-experimental scenes, but they are intentionally not exposed as production
-ready. The release decision is made by the two-minute single-hero audit in
-`Audit-SingleHeroBenchmark.cjs`: it checks real decoded fps, frame gaps, visual
-discontinuities, completed speech passes and measured mouth deformation. Only
-after that benchmark is stable should the project restore additional guests and
-shot-dependent LOD. Setup and verification commands are in
-the [Unreal POC README](unreal/ConclaviaStudio/README.md). Proprietary Marketplace
-plugin binaries and sample content are ignored and are never committed.
-
-The previous UE 5.6 Grade 1 gate passed on 16 August 2026 on the AWS
-`g6.2xlarge` POC.
-Its 120-second capture decoded 6,464 frames at 53.85 fps, completed all four
-speech passes, recorded zero frame gaps of 100 ms or more, and measured both
-mouth and upper-face deformation. The decoded interval p95 was 33 ms and the
-largest interval was 58 ms. Four camera compositions and eight timed 1920×1080
-audit frames remained unobstructed, with the same fully loaded groom from the
-first sample through the last. This proves that the single-face transport,
-render clock, Grade 1 set, camera package and commercial solver can run stably;
-it remains the rollback benchmark for the UE 5.8 migration. It does **not** yet
-prove that the Unreal presentation is more compelling than LiveAvatar, nor that
-five simultaneous MetaHumans are production ready. Until a single-hero visual
-A/B test wins that comparison, LiveAvatar remains the default broadcast path
-and Unreal remains an explicit R&D mode.
-
-For the configured AWS POC, the Mac workflow is one command each way. It starts
-the GPU, waits for Systems Manager, restricts the player, control plane and
-WebRTC media ports to the current public IP, reads the supervisor token without
-printing it and updates the ignored `.env.local`:
-
-```bash
-npm run studio:3d:start
-npm run dev
+```text
+Microsoft Teams meeting
+        │
+        ▼
+Recall.ai signed-in participant + live transcript
+        │
+        ▼
+Conclavia meeting output page
+        ├── wake phrase and command routing
+        ├── MongoDB transcript and series memory
+        ├── OpenAI Responses API for meeting intelligence (optional)
+        └── local Supertonic voice + lip sync + expressions
+        │
+        ▼
+Avatar video and spoken response returned to Teams
 ```
 
-Every GPU start installs two independent Windows watchdogs and resets the
-current session deadline. The default maximum runtime is **120 minutes**, so the
-instance still shuts down if the Mac sleeps, the terminal closes or the browser
-is left open. Override it for one supervised run with a value from 15 to 720:
+Recall Output Media loads the protected `/meeting-room/[token]` page as the participant camera. That page consumes Recall's in-meeting transcript WebSocket, forwards finalized utterances to the matching meeting, and plays newly generated speech into the meeting. No virtual microphone, virtual camera, browser extension, or client-side Teams plugin is required.
 
-```bash
-CONCLAVIA_3D_MAX_RUNTIME_MINUTES=90 npm run studio:3d:start
-```
+## Cost controls
 
-After the test, stop the renderer and the billable `g6.2xlarge` instance:
+- Speech is generated on the meeting device with Supertonic 3. There is no per-character voice API charge.
+- ChatGPT-backed intelligence is opt-in through `MEETING_AI_ENABLED=true`. Remembering facts and the deterministic memory fallback work without it.
+- The default model is `gpt-5.4-mini`; it can be changed with `OPENAI_MEETING_MODEL`.
+- Audio is not stored. The live transcript and selected memory are stored in MongoDB.
+- No external meeting participant is created while `MEETING_BOT_PROVIDER=preview`.
 
-```bash
-npm run studio:3d:stop
-```
-
-## Application routes
-
-| Route | Purpose |
-| --- | --- |
-| `/talks` | List saved talks |
-| `/talks/new` | Create a talk and configure all five participants |
-| `/talks/[id]` | View a saved talk configuration |
-| `/talks/[id]/edit` | Edit or duplicate a saved configuration |
-| `/talks/[id]/run` | Run or resume the talk inside the virtual studio and control room |
-| `/talks/[id]/broadcast` | Open the clean 16:9 programme output for recording or streaming |
-
-## API routes
-
-| Method | Route | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/talks` | List talks, newest first |
-| `POST` | `/api/talks` | Validate and create a talk |
-| `POST` | `/api/cast/generate` | Generate five AI guests or one replacement with structured output |
-| `GET` | `/api/talks/[id]` | Read one talk |
-| `PATCH` | `/api/talks/[id]` | Validate and update one talk |
-| `DELETE` | `/api/talks/[id]` | Delete one talk and its persisted sessions |
-| `GET` | `/api/talks/[id]/runs` | Read the latest session for a talk |
-| `POST` | `/api/talks/[id]/runs` | Create a session without calling an LLM |
-| `GET` | `/api/runs/[id]` | Read one persisted session |
-| `GET` | `/api/runs/[id]/broadcast-manifest` | Download the deterministic 4K edit decision list for one session |
-| `POST` | `/api/runs/[id]/next` | Generate and persist exactly one intervention |
-| `POST` | `/api/runs/[id]/next/stream` | Stream, then persist, exactly one intervention |
-| `POST` | `/api/runs/[id]/human-turn` | Persist the human contribution currently requested by the director |
-| `GET/POST/PATCH/DELETE` | `/api/runs/[id]/audience` | Read, connect, configure, or disconnect the YouTube audience desk |
-| `POST` | `/api/runs/[id]/audience/sync` | Fetch the next YouTube live-chat page at the provider’s requested interval |
-| `PATCH` | `/api/runs/[id]/audience/messages/[messageId]` | Approve, discard, show, or route one audience message |
-| `GET` | `/api/liveavatar/status` | Read sanitized configuration, credit, and timeout status |
-| `GET` | `/api/liveavatar/voices/[id]/preview` | Stream the official preview for an allow-listed LiveAvatar voice |
-| `POST` | `/api/liveavatar/sessions` | Mint a short-lived allow-listed LiveAvatar FULL session token with its voice persona |
-| `DELETE` | `/api/liveavatar/sessions/[id]` | Stop the paid LiveAvatar session server-side |
-| `GET` | `/api/unreal/status` | Read sanitized renderer, stage, camera, audio and facial-pipeline state |
-| `POST/DELETE` | `/api/unreal/session` | Start or stop the token-protected Unreal/Pixel Streaming renderer |
-| `POST` | `/api/unreal/cue` | Validate and proxy one speaker/addressee camera cue to Unreal |
-| `POST` | `/api/unreal/speech` | Generate the allow-listed Amazon Polly programme voice as mono PCM16 |
-| `POST` | `/api/unreal/audio/speech` | Forward one complete PCM16 utterance for synchronized Unreal playback and commercial facial inference |
-| `POST` | `/api/unreal/audio` | Forward bounded PCM chunks to the protected Unreal control plane |
+The Supertonic model is downloaded on first voice use and cached by the browser. Review [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before distribution.
 
 ## Requirements
 
-- Node.js 20.19 or newer
-- npm
-- A reachable MongoDB instance
-- OpenAI and/or Gemini credentials for text generation and editorial turns
-- A LiveAvatar API key and a plan with enough concurrent sessions for the configured AI cast
-- Optionally, an Unreal Engine 5.8 Pixel Streaming host for the Studio 3D mode
-- An optional YouTube Data API key for live audience interaction
+- Node.js 22 recommended; Node.js 20.9 or newer is supported.
+- MongoDB.
+- Google Chrome for the Playwright browser suite.
+- For authenticated automatic entry: a Recall.ai workspace and a dedicated Microsoft 365 Business tenant for the bot, separate from the existing company tenant.
+- For generated answers and semantic verification: an OpenAI API project.
 
-## Installation
+## Local setup
 
 ```bash
-git clone https://github.com/vgflutter/conclavia.git
-cd conclavia
-npm install
+npm ci
 cp .env.example .env.local
-```
-
-Then configure MongoDB and at least one LLM provider in `.env.local`, and run:
-
-```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The interface uses the browser language on the first visit and stores an explicit EN/IT selection in a cookie.
+Set `MONGODB_URI`, then open [http://localhost:3000/meetings](http://localhost:3000/meetings). Local mode stores meetings and memory, runs all manual commands, and tests the avatar without joining an external call.
 
-## MongoDB configuration
+## Environment variables
 
-Set `MONGODB_URI` in `.env.local`:
-
-```dotenv
-MONGODB_URI=mongodb://USER:PASSWORD@127.0.0.1:27017/conclave?authSource=AUTH_DB
-```
-
-The database selected by the URI is `conclave`. `authSource` identifies the database where the MongoDB user is defined; it does not change the application database.
-
-The application user needs `readWrite` access to `conclave`. A MongoDB administrator can grant it with:
-
-```javascript
-db.getSiblingDB("AUTH_DB").grantRolesToUser("USER", [
-  { role: "readWrite", db: "conclave" }
-])
-```
-
-MongoDB creates the database on the first write. An empty `talks` collection can also be created in advance.
-
-Never commit `.env.local` or real credentials. Local environment files are excluded by `.gitignore`.
-
-## LLM provider configuration
-
-Add the provider keys to `.env.local` alongside `MONGODB_URI`:
-
-```dotenv
-OPENAI_API_KEY=your_openai_api_key
-GEMINI_API_KEY=your_gemini_api_key
-```
-
-These are server-only variables: do not prefix them with `NEXT_PUBLIC_`. Provider calls are made only from Node.js Route Handlers and the keys are never returned to the browser.
-
-OpenAI is an optional text-generation provider only. Conclavia does not call an OpenAI speech model and does not use OpenAI voices anywhere in the live pipeline.
-
-## YouTube live audience configuration
-
-Enable **YouTube Data API v3** in a Google Cloud project and add a restricted server key:
-
-```dotenv
-YOUTUBE_API_KEY=your_youtube_data_api_key
-```
-
-This first audience integration is read-only and therefore does not ask the channel owner to complete OAuth. In the control-room view, open **Live audience desk** and paste the public YouTube live URL or its 11-character video ID. Conclavia resolves the active chat, follows the continuation token and provider polling interval, and stores at most the latest 200 messages with the run.
-
-Manual review is disabled by default. When enabled, incoming messages remain pending until the operator approves or discards them. Without it, messages go straight to the control-room queue, but nothing reaches the programme until the operator chooses an action:
-
-- **Show on air** displays the viewer and message for twelve seconds without changing the conversation.
-- **Give to host** makes the next host intervention attribute the message and put it to the selected—or automatically chosen—guest.
-- **Ask guest** makes the selected guest answer it on the next useful turn.
-- **Use as prompt** injects only the editorial substance and never identifies the viewer on air.
-
-Selected messages are quoted to the LLM as untrusted programme material rather than instructions, persisted on the generated intervention, and rendered in the clean broadcast output. The audience card and broadcast output synchronize through MongoDB, so OBS can remain open in a separate window. See the official [YouTube live-chat resource](https://developers.google.com/youtube/v3/live/docs/liveChatMessages) and [`liveChatMessages.list`](https://developers.google.com/youtube/v3/live/docs/liveChatMessages/list) documentation.
-
-The supported model catalog is intentionally explicit:
-
-| Provider | Model | Stored identifier |
+| Variable | Required | Purpose |
 | --- | --- | --- |
-| OpenAI / ChatGPT | GPT-5.6 Sol | `gpt-5.6-sol` |
-| OpenAI / ChatGPT | GPT-5.6 Terra | `gpt-5.6-terra` |
-| Google / Gemini | Gemini 3.6 Flash | `gemini-3.6-flash` |
-| Google / Gemini | Gemini 3.5 Flash-Lite | `gemini-3.5-flash-lite` |
+| `MONGODB_URI` | Yes | MongoDB connection string. |
+| `MEETING_AI_ENABLED` | No | Set to `true` to use OpenAI for summaries, answers, and verification. |
+| `OPENAI_API_KEY` | With meeting AI | Server-side OpenAI API credential. |
+| `OPENAI_MEETING_MODEL` | No | Responses API model; defaults to `gpt-5.4-mini`. |
+| `MEETING_BOT_PROVIDER` | No | Keep `preview` locally; set `recall` for automatic Teams entry. |
+| `CONCLAVIA_PUBLIC_URL` | With Recall | Stable public HTTPS origin serving this application. |
+| `RECALL_API_BASE_URL` | No | Regional Recall API origin; defaults to `eu-central-1`. |
+| `RECALL_API_KEY` | With Recall | Server-side Recall API credential. |
+| `RECALL_WEBHOOK_SECRET` | With Recall | Recall verification secret beginning with `whsec_`. |
+| `TEAMS_GUEST_ACCOUNT_EMAIL` | With Recall | Dedicated Microsoft identity used by the participant. |
+| `TEAMS_GUEST_DISPLAY_NAME` | No | Requested participant name when the provider permits it. |
+| `TEAMS_SIGNED_IN_CONFIRMED` | With Recall | Set to `true` only after the Microsoft identity is configured in Recall. |
 
-## LiveAvatar studio configuration
+Never commit real credentials. Inject them through the deployment platform's secret store.
 
-LiveAvatar is required for the broadcast. Static portraits are used only in the offline preview and while a stream is completing its first video frame. During a broadcast, every configured AI seat is connected before the first cue and replaced by its synchronized LiveAvatar stream. Add:
+## Microsoft Teams setup
 
-```dotenv
-LIVEAVATAR_API_KEY=your_liveavatar_api_key
-LIVEAVATAR_PRODUCTION_ENABLED=true
-LIVEAVATAR_MAX_SESSION_SECONDS=300
-LIVEAVATAR_VIDEO_QUALITY=auto
+1. Create a dedicated Microsoft 365 Business tenant for Conclavia. Do not reuse a personal account or add the bot to the existing company tenant: Recall's authenticated setup requires organization-level security changes.
+2. Create the bot user inside that tenant, assign its Teams license, and set the name and profile picture that should appear in meetings.
+3. Add the bot user's sign-in credentials in Recall's Microsoft Teams setup. Keep those credentials in Recall; Conclavia only needs the matching email for scheduling and overlap protection.
+4. Apply Recall's documented security configuration only to the dedicated tenant. Interactive MFA or biometric approval cannot be completed by an unattended bot.
+5. When the bot joins another organization, have that organization trust the bot domain or add the identity as an external colleague or guest, and include its email in the meeting invitation when appropriate.
+6. Configure the Recall status webhook as `https://YOUR_ORIGIN/api/webhooks/recall` and copy its verification secret.
+7. Set all Recall and Teams variables listed above, then change `MEETING_BOT_PROVIDER` to `recall` and `TEAMS_SIGNED_IN_CONFIRMED` to `true`.
+8. Create a future meeting with automatic entry enabled. Conclavia schedules one participant per appointment and prevents overlapping meetings for the same account.
 
-# Optional purchased custom cast override (repeat for seats 2–5)
-LIVEAVATAR_SEAT_1_AVATAR_ID=your_custom_avatar_id
-LIVEAVATAR_SEAT_1_VOICE_ID=your_liveavatar_voice_id
-LIVEAVATAR_SEAT_1_SEX=female
-```
+A signed-in participant may still wait in the lobby, depending on the organizer's Teams policy. The meeting page shows that state so a participant can admit it. Recall signed-in bots support Microsoft Teams Business meetings; test the exact meeting type used by the organization before rollout.
 
-The API key is read only by server Route Handlers. The browser receives short-lived session tokens, never the account key. Sessions are disabled unless `LIVEAVATAR_PRODUCTION_ENABLED=true`; duration is clamped server-side to 20–300 seconds. Keep the flag `false` in shared or untrusted environments.
-
-The **Go live** action opens a clear cost preflight and then connects all configured AI presenters concurrently behind a branded programme opener. Later turns therefore reuse an already-moving speaker rather than opening a session between contributions. Each intervention is normalized for spoken delivery and sent as text to the correct FULL session with the official SDK `repeat()` command. LiveAvatar then generates the configured voice and the matching lip-synced video inside the same provider pipeline. There is no browser voice, separate speech endpoint, external PCM path, or static-video fallback. The UI declares that the voices are AI-generated.
-
-The server restricts sessions to curated official green-screen Studio avatars and a deliberately short LiveAvatar voice catalog. Avatar and voice are independent: **Auto** assigns distinct sex-compatible voices for the talk locale, while the participant and host forms expose the official provider preview plus an explicit selection. The current public provider catalog labels every preset voice as English, including the Italian-named presets. Conclavia therefore treats its Italian list as a target-locale shortlist, uses LiveAvatar's multilingual synthesis settings, defaults first to Giovanni Rossi and Elenora, and exposes the real voice name in the live telemetry. Purchased custom avatars or imported LiveAvatar voices can replace any seat through server-only environment variables; incomplete or sex-inconsistent overrides fail closed.
-
-`LIVEAVATAR_VIDEO_QUALITY=auto` first requests `very_high` and retries at `high` only when LiveAvatar returns its specific 1080p plan restriction. Set it explicitly to `high` when startup speed matters more than the initial capability check, or to `very_high` when the account must fail rather than downgrade. At the time of the latest verification, the Starter account delivered a real `1280×720` stream after rejecting 1080p; Business or Enterprise is required by the current API for that higher session quality.
-
-Green backgrounds are removed by a two-pass GPU compositor. It samples neighbouring pixels to refine hair and shoulder edges, suppresses reflected green, applies a restrained broadcast grade, and reuses only the semi-transparent edge matte from the previous video frame to prevent flicker. Processing resolution follows the actual shot: `640×360` for background guests in a panel, `960×540` for the active wide-shot speaker, `1280×720` per guest in a two-shot, and up to `1920×1080` for a close-up. The raw media elements retain their real rendered dimensions so LiveKit adaptive streaming does not suspend an avatar that is being composited. A keep-alive protects silent guests while another participant speaks; sessions nearing their per-session limit are recycled safely, and every active stream closes when the talk ends or the operator stops it.
-
-Live audio uses the remote media element that already owns the LiveAvatar WebRTC stream. Every connected guest remains muted until `AVATAR_SPEAK_STARTED`; the active guest alone receives the configured programme volume, and `AVATAR_SPEAK_ENDED` immediately mutes it again. This direct path was chosen after the previous Web Audio bus proved silent in a real browser despite receiving a valid track. The visible **Enable audio** action remains as a browser-policy recovery path. The collapsed LiveAvatar panel reports the latest provider voice-start delay and speaker-to-speaker handoff gap during the programme.
-
-LiveAvatar FULL currently costs 2 credits per active avatar minute. Five AI guests in a five-minute studio therefore have a maximum estimate of 50 credits. There is no separate speech-provider charge in Conclavia. An AI moderator also consumes one concurrent session; the total number of AI guests plus an AI moderator cannot exceed five on the current plan. Human seats do not consume LiveAvatar credits.
-
-If the account has **Allow Overage** enabled, a zero plan balance is not treated as a client-side failure: Conclavia requests the session and lets LiveAvatar apply the account’s pay-as-you-go policy. The preflight remains a maximum estimate, not a guarantee of the final bill.
-
-## Unreal studio configuration
-
-Studio 3D is optional and selected per episode. Configure the public Pixel
-Streaming player and the two server-only control endpoints:
-
-```dotenv
-UNREAL_STUDIO_PLAYER_URL=https://studio.example.com/uiless.html
-UNREAL_STUDIO_CONTROL_URL=https://studio-control.example.com
-UNREAL_STUDIO_SUPERVISOR_URL=https://studio-control.example.com
-UNREAL_STUDIO_TOKEN=replace_with_a_long_random_token
-UNREAL_STUDIO_PROFILE=lipsync58
-```
-
-`PLAYER_URL` is embedded in the browser. The control and supervisor URLs are
-called only by Next.js Route Handlers and must sit behind TLS, an IP allow-list
-or private network, and the bearer token. The supplied Windows supervisor
-launches the UE 5.8 `lipsync58` profile, reports the engine, model route,
-generator, camera and facial-control state, accepts bounded PCM16 speech, and
-stops the complete Unreal plus signalling process tree. Pixel Streaming 2 codec
-negotiation is enabled in `Config/DefaultGame.ini`; without it, a UE 5.8 WebRTC
-offer can fail before the first frame. Do not expose Unreal control port `8081`
-directly. The previous UE 5.6 commercial profile remains available by setting
-`UNREAL_STUDIO_PROFILE=lipsync`. The five-person `pop` and `serious` profiles
-are retained for scene development but are not selected by the current web API.
-
-During this validation phase, the visible video, audio playback and facial
-animation all come from Unreal. The web app requests Italian Amazon Polly
-Generative audio, forwards the resulting mono 16 kHz PCM to the protected Unreal
-control plane, and waits for the measured utterance duration. The active
-laboratory deliberately routes every voice to one warmed MetaHuman hero; it is a
-quality and synchronization gate, not yet the complete five-person broadcast
-mode.
-
-## Seated composition and virtual cameras
-
-The production sets treat each presenter as a chest-up source, which matches LiveAvatar’s real capture model. The flagship After Hours scene places the cast on a subtle depth arc behind a procedural smoked-glass podcast desk with individual microphones and contact lighting. Color Block Club, Electric Commons, Soft Social and the legacy Broadcast Panel use calibrated foreground furniture for the same lower-body occlusion. This creates a coherent panel without stretching or fabricating a presenter’s missing legs. After Hours is the default for every new episode; the older broadcast look remains available only as an explicit stylistic choice.
-
-Camera direction transforms the complete scene—set, presenters, lighting, microphones and foreground desk—as one virtual camera. A full panel establishes the room; restrained `1.36×`, `1.50×` and `1.70×` close-ups move from a contextual portrait to a deliberate punch-in; and a two-shot opens and closes direct replies. Guests outside the principal framing remain softly present instead of being removed from the composition, while medium and long interventions return to a two-shot or full panel before the handoff. Cuts use only a restrained exposure bridge. Shot-aware canvas resolution preserves the active guest instead of enlarging the panel render, while restrained depth-of-field makes every cut read clearly. The AI moderator has a separate keyed host identity and on-camera close-up instead of being voice-only. A compact lower third appears opposite the speaker for roughly three seconds, shows its addressee only briefly, and then clears the picture. Optional subtitles begin only on LiveAvatar’s real speech-start event, advance by spoken-word weight, and disappear on speech end. Title and chapter stingers and the final result card stay inside the 16:9 safe area.
-
-The public green-screen catalog currently exposes five distinct female Studio identities but only three distinct male Studio identities suitable for this shared-set compositor. Additional male seats therefore use alternate official outfits rather than pretending to be new people. A production needing five distinct male presenters should supply purchased custom green-screen avatars through the seat overrides.
-
-LiveAvatar’s official [custom avatar capture guide](https://help.heygen.com/en/articles/9612935-liveavatar-custom-liveavatar-creation-guide) requires chest-up or head-and-shoulders footage and explicitly does not support full-body recordings. Buying a higher plan therefore does not, by itself, create a genuinely seated full-body avatar. If branded custom presenters become important, record each performer while physically seated in a low chair, with restrained posture and a static or green background: their real listening and speaking body language will then match this set. The provider’s [FAQ](https://help.heygen.com/en/articles/12758866-liveavatar-faq) also notes that gestures are learned from the source footage rather than directed dynamically.
-
-For production purchasing, upgrade for an actual delivery requirement—not to solve seating. The current [LiveAvatar plans](https://www.liveavatar.com/) position Essential for longer watermark-free programmes and Business for a bundled 1080p custom avatar and higher concurrency. Starter plus the layered set is enough to validate the format; Business becomes worthwhile only when a consistent proprietary on-air identity matters.
-
-## Broadcast and YouTube workflow
-
-Open `/talks/[id]/run` as the control room and `/talks/[id]/broadcast` as the clean programme output. The episode page labels both destinations explicitly. The output contains no application header, transcript, provider telemetry, or permanent operator buttons. Move the pointer to the upper-right corner to reveal emergency controls; keep it outside the source during recording. The start slate still requires an explicit click and cost confirmation, so a page refresh can never silently open paid sessions. A browser-wide ownership lock guarantees that only one Conclavia window can generate turns or hold paid LiveAvatar sessions for the same episode; a second attempted output stops before provider work starts.
-
-Recommended OBS setup for an initial 1080p production:
-
-1. Add a Browser Source at `1920×1080`, 30 FPS, pointing to the broadcast URL. Enable **Control audio via OBS** so the LiveAvatar programme appears in the OBS mixer.
-2. Set the canvas and scaled output to `1920×1080`. Use H.264, CBR at about `8,000 Kbps`, and a two-second keyframe interval for YouTube 1080p30.
-3. Use AAC audio at 48 kHz. Add a gentle compressor and a limiter in OBS to keep different guest voices consistent without clipping.
-4. Stream to YouTube over RTMPS, or record locally to MKV and remux to MP4 after the show. A local recording is strongly recommended even during a live stream.
-5. Run one private/unlisted rehearsal and verify the YouTube stream-health panel before scheduling a public broadcast.
-
-When a run completes, the control room exposes **Download 4K edit plan**. Schema v2 is a deterministic frame-level edit decision list at `3840×2160`, 30 fps, Rec.709 and 48 kHz, with a `-14 LUFS` programme target and `-1 dBTP` ceiling. Every intervention can expand into multiple coverage segments with exact frame ranges, camera IDs, speaker, target, intent, caption, close-up framing, camera motion, adjacent two-shot companion, reaction cue, and hard-cut transition. It is designed as the stable input for a future HyperFrames/FFmpeg or Avatar IV master-render pipeline; it does not pretend that a browser recording is already a native 4K avatar render.
-
-These values follow YouTube’s current [live encoder guidance](https://support.google.com/youtube/answer/2853702) and [upload encoding recommendations](https://support.google.com/youtube/answer/1722171). Increase resolution or bitrate only after measuring the complete machine, network, and five-avatar GPU load.
-
-## Development commands
+## Verification
 
 ```bash
-npm run dev
-npm run lint
-npm run build
-npm start
+npm run verify
 ```
 
-`npm start` serves the optimized application after a successful build.
+This runs ESLint, TypeScript, a production build, and six Playwright scenarios covering:
 
-## Verified baseline
+- single-meeting creation, agenda, commands, memory, and cleanup;
+- series creation and continuity across two appointments;
+- avatar navigation, facial mood, and hand raise;
+- Italian and English wake-phrase command parsing;
+- Recall live-transcript payload parsing;
+- database health and protected meeting-output behavior.
 
-The current MVP is checked locally with strict TypeScript, linting, and a production build. Runtime QA uses only temporary records in the `conclave` database; every QA talk, run, and audience room is removed afterward without touching the user’s saved episode or any other MongoDB database.
+Tests run on an isolated local port with meeting AI and the external participant disabled. They create uniquely named records and remove them even after a failed scenario, so verification never creates paid external usage.
 
-The current voice architecture uses LiveAvatar FULL end to end: the session token contains the selected voice persona and delivery settings, and the browser sends only the intervention text through the official SDK. The previous LITE/OpenAI PCM implementation and its speech endpoint have been removed. A real no-credit FULL sandbox lifecycle completed token creation, LiveKit startup, and shutdown with HTTP `200 → 201 → 200`; all 12 allow-listed voice previews also returned valid provider audio. Lint, strict TypeScript, and a production build remain the mandatory local baseline. Earlier After Hours captures verified the full panel, close-up and two-shot compositions, desk occlusion, microphone visibility, labels, eye line, and the 16:9 safe area.
+## Production deployment
 
-## Project structure
+The repository includes a multi-stage, non-root Docker image using the Next.js standalone output:
 
-```text
-src/
-├── app/                 App Router pages, runner, and API routes
-├── components/          Header, talk form, runner, and virtual studio
-├── i18n/                Translation catalog and locale handling
-├── lib/                 MongoDB, prompts, LLM/LiveAvatar adapters, and video compositing
-├── models/              Mongoose Talk and TalkRun models
-└── types/               Shared strict TypeScript types
+```bash
+docker build -t conclavia .
+docker run --env-file .env.production -p 3000:3000 conclavia
 ```
 
-The browser only talks to Next.js Route Handlers. MongoDB credentials and provider keys remain server-side; each runner step validates the saved configuration, calls the selected provider, and persists the result before responding. YouTube messages live in a separate `AudienceRoom` collection keyed by run, while the selected cue is copied into the run and final transcript for durable editorial history.
+Use `GET /api/health` for readiness checks. Terminate TLS before the application and set `CONCLAVIA_PUBLIC_URL` to the final HTTPS origin.
 
-## Talk configuration
+This release is designed as a private, single-workspace application and does not include end-user authentication. Place the entire management interface and API behind the company's SSO, identity-aware proxy, or equivalent access control before exposing it to the internet. The random meeting-output token acts as a bearer capability and must not be logged or shared.
 
-A talk stores:
+## Main routes
 
-- title, topic, optional description, and language
-- exactly five participants
-- automatic `draft` or `ready` status based on whether every seat is complete
-- maximum interventions, planned duration, conversation pace, default model, and guest-interaction policy
-- the selected video engine (`liveavatar` or `unreal`) and virtual-studio theme, persisted with the talk and frozen into every new run snapshot
-- creation and update timestamps
+| Route | Purpose |
+| --- | --- |
+| `/meetings` | Dashboard for meetings and series. |
+| `/meetings/new` | Create one Teams meeting or a multi-appointment series. |
+| `/meetings/series/[id]` | Manage appointments, shared agenda, and continuity. |
+| `/meetings/[id]` | Run commands, follow the agenda, view transcript, and save the outcome. |
+| `/memory` | Review meeting and series memory. |
+| `/avatar` | Manage identity, personality, and voice. |
+| `/avatar/test` | Test voice, expressions, lip sync, and gestures without a meeting. |
+| `/meeting-room/[token]` | Minimal 16:9 output consumed by the meeting participant. |
 
-Each assigned seat stores its participant type (`ai` or `human`) and sex (`female` or `male`). AI participants also store a name, role, stable perspective, private objectives, non-negotiable points, speaking style, optional model override, and four integer traits from 0 to 100: assertiveness, patience, interruptiveness, and baseline tension. Human participants store their name, role, sex, and an optional editorial brief. Unassigned seats can be persisted in drafts, while a `ready` talk requires all five seats to be assigned.
+## Technology
 
-The optional host is stored separately from the five guests. A host can be human or AI and includes an on-air identity, editorial line, optional production brief, operational permissions, and an optional model override. The editorial line can be impartial, drive open confrontation, or seek mediation and synthesis; it never changes the individual guests’ configured positions.
-
-Perspective modes define how the text runner prompts each AI participant:
-
-- `custom` requires an explicit perspective prompt
-- `automatic` delegates the perspective to the selected AI and accepts optional preferences
-- `random` requests a random perspective and accepts optional constraints
-
-During a text session, `automatic` and `random` modes are translated into stable participant instructions and reinforced by that guest’s private memory. The generated intervention and its usage metadata are saved after every successful provider call.
-
-## Talk runner and virtual studio
-
-Open `/talks/[id]/run` for the control room, or `/talks/[id]/broadcast` for the clean programme feed. The single **Go live** action confirms the maximum LiveAvatar cost, connects the declared AI cast in parallel, creates or resumes the persisted run, and starts automatic direction. Each message is individually persisted and queued for its speaker’s FULL session while generation of the following turn continues off-air. A hard media gate makes only the current speaker audible and mutes it as soon as LiveAvatar reports the end of speech, preventing a remote tail from leaking into the next contribution. The opening slate, two-shot pre-rolls, and chapter cards occupy unavoidable provider warm-up; they never hold back a ready voice and disappear on LiveAvatar’s real speech-start event. Persistence and editorial review continue off-air in parallel. If the next guest already has an independent argument ready, the prompt explicitly avoids pretending it is a reply.
-
-The virtual studio has an offline preview before a run begins. During startup, every AI portrait is replaced by its real LiveAvatar feed before the first intervention. Automatic direction uses a full panel for editorial beats, high-resolution close-ups for speakers, short two-shots for direct exchanges, timed listener reactions, and contextual wide cuts. The control room can override this behavior. The badge shows `On air` only while a LiveAvatar is actually speaking.
-
-The runner treats `maxTurns` as a safety ceiling. The configured duration is an operational airtime budget: every intervention receives an estimated spoken duration, late turns become shorter, and reaching the time or turn ceiling forces an honest editorial close. Structured checkpoints run at selected milestones and may close earlier only after a meaningful minimum and at least one synthesis contribution. A valid ending can be agreement, conditional agreement, clarified disagreement, or an explicitly open outcome. With an AI host, the shared state drives the host’s closing summary; without one, the most patient AI guest gives a final position while staying in character.
-
-The first runner supports:
-
-- any mix of five AI and guided human participants selected dynamically by an invisible director
-- no host, an AI host, or a guided human host
-- direct replies, challenges, questions, clarifications, partial agreements, and interruptions with explicit targets
-- independent prepared arguments that do not force an artificial reference to the previous speaker
-- varied reference styles and speaker selection that breaks repetitive back-and-forth pairings
-- persisted positions → conflict → examination → synthesis → conclusion progression
-- structured editorial checkpoints that decide the next objective and conclusion readiness
-- variable word ranges determined by intention and the configured pace
-- speculative next-turn preparation during live streaming, with the completed contribution held durably in MongoDB
-- active AI host interventions during the discussion
-- a semantic floor queue updated by direct calls and editorial checkpoints
-- OpenAI Responses streaming and schema-constrained cast generation
-- Gemini `streamGenerateContent` and schema-constrained cast generation
-- a maximum of 50 participant turns per session
-- a YouTube audience desk with optional manual approval and director-controlled routing to the host or any guest
-- recent-transcript prompting plus a compact persisted discussion state and per-guest memory
-- live text streaming, durable progress, transcript, failure state, retry, and token usage
-- a final conclusion card with answer, agreements, disagreements, conditions, and unresolved questions
-
-## Current scope
-
-This repository contains real text generation, guided human turns, persistence, a local-camera proof, and up to five concurrent lip-synced LiveAvatar sessions. Static portraits are offline previews only and are never used as the audiovisual broadcast fallback. Authentication, microphone ingestion, multi-device guests, and recording remain outside this experimental milestone.
-
-When the director selects a human guest or host, the run enters `waiting_for_human`, exposes an on-air input desk, persists the submitted intervention with `origin: human`, and then returns control to the same shared thread. The browser camera is a visual local preview only; the next functional milestone is microphone capture plus realtime transport for remote people and synchronized audio/video direction.
+- Next.js 16.3, React 19, and TypeScript.
+- Tailwind CSS 4.
+- MongoDB with Mongoose.
+- Recall.ai Output Media and signed-in Microsoft Teams bots.
+- OpenAI Responses API for optional meeting intelligence.
+- Supertonic 3 and ONNX Runtime Web for local speech.
+- Playwright for end-to-end verification.

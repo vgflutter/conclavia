@@ -1,0 +1,190 @@
+.businessAvatar {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+  overflow: visible;
+}
+
+.avatarFloorShadow { fill: rgb(0 0 0 / 48%); }
+.avatarBody {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: composedPresence 5.8s ease-in-out infinite;
+}
+.suitBack, .leftLapel, .rightLapel, .shirtFront, .shirtCollar, .tieKnot, .tieBody {
+  stroke: rgb(2 8 9 / 55%);
+  stroke-width: 3;
+}
+.raisedHand {
+  opacity: 0;
+  transform: translate(30px, 120px) rotate(12deg);
+  transform-box: fill-box;
+  transform-origin: 42% 88%;
+  transition: opacity 480ms ease, transform 620ms cubic-bezier(0.16, 0.82, 0.24, 1);
+}
+.businessAvatar[data-gesture="hand_raise"] .raisedHand {
+  opacity: 1;
+  transform: translate(0, 0) rotate(0deg);
+}
+.raisedSleeve, .raisedCuff, .raisedPalm { stroke: rgb(26 22 18 / 58%); stroke-width: 3; stroke-linejoin: round; }
+.raisedSleeveShade { fill: rgb(3 12 17 / 24%); }
+.raisedArmSeam { fill: none; stroke: rgb(173 202 204 / 18%); stroke-linecap: round; stroke-width: 3; }
+.handDetail, .handHighlight { fill: none; stroke-linecap: round; }
+.handDetail { stroke: rgb(102 61 45 / 45%); stroke-width: 4; }
+.handHighlight { stroke: rgb(255 225 186 / 20%); stroke-width: 5; }
+.shirtCollar { stroke: rgb(95 87 75 / 48%); stroke-linejoin: round; }
+.tieHighlight { opacity: 0.8; }
+.tieTexture { fill: none; opacity: 0.28; stroke: #d6f3ae; stroke-width: 4; }
+.tieBar { fill: #d6a85f; stroke: #f7d89a; stroke-width: 1.5; }
+.leftLapelEdge, .rightLapelEdge, .pocket, .suitSeam {
+  fill: none;
+  stroke: rgb(173 202 204 / 19%);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+.pocketSquare { fill: #cb6b3e; opacity: 0.82; }
+.lapelPin { fill: #d7834d; stroke: #f3bb79; stroke-width: 2; }
+.avatarNeck, .avatarHead, .leftEar, .rightEar { stroke: rgb(63 35 25 / 46%); stroke-width: 3; }
+.neckShadow { fill: rgb(77 43 30 / 24%); }
+.earDetail, .avatarNose, .noseLight, .cheekDetail, .chinDetail {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.earDetail { stroke: rgb(104 60 42 / 57%); stroke-width: 8; }
+.faceLight { fill: rgb(255 235 195 / 14%); filter: blur(18px); }
+.templeShade { fill: rgb(67 37 29 / 17%); filter: blur(18px); }
+.clayStrokeOne, .clayStrokeTwo {
+  fill: none;
+  stroke: rgb(255 243 213 / 5.5%);
+  stroke-linecap: round;
+  stroke-width: 13;
+}
+.avatarHair path { stroke: rgb(24 18 14 / 62%); stroke-linejoin: round; stroke-width: 3; }
+.hairGrooves path { fill: none; stroke: rgb(226 184 130 / 20%); stroke-linecap: round; stroke-width: 8; }
+.avatarBrows { transform-box: fill-box; transform-origin: center; }
+.avatarBrows path { fill: none; stroke: #4b3427; stroke-linecap: round; stroke-width: 15; }
+.leftBrow, .rightBrow { transform-box: fill-box; transform-origin: center; transition: transform 220ms ease; }
+.businessAvatar[data-mood="friendly"] .leftBrow,
+.businessAvatar[data-mood="friendly"] .rightBrow { transform: translateY(-5px) scaleX(1.04); }
+.businessAvatar[data-mood="focused"] .leftBrow { transform: translate(2px, 3px) rotate(7deg); }
+.businessAvatar[data-mood="focused"] .rightBrow { transform: translate(-2px, 3px) rotate(-7deg); }
+.businessAvatar[data-mood="confident"] .leftBrow { transform: translateY(-6px) rotate(-4deg); }
+.businessAvatar[data-mood="confident"] .rightBrow { transform: translateY(1px) rotate(3deg); }
+.avatarEyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: naturalBlink 5.7s infinite;
+}
+.eyesExpression {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 220ms ease;
+}
+.businessAvatar[data-mood="friendly"] .eyesExpression { transform: translateY(-1px) scaleY(1.07); }
+.businessAvatar[data-mood="focused"] .eyesExpression { transform: translateY(2px) scaleY(0.84); }
+.businessAvatar[data-mood="confident"] .eyesExpression { transform: translateY(1px) scaleY(0.92); }
+.eyeWhite { fill: #f6e8d0; }
+.iris { fill: #5f6c4f; stroke: #2e382a; stroke-width: 4; }
+.pupils circle:not(.eyeSpark) { fill: #141711; }
+.eyeSpark { fill: #fff7dc; }
+.pupils {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: consideredLook 8.4s ease-in-out infinite;
+}
+.upperLid { fill: none; stroke: #674934; stroke-linecap: round; stroke-width: 7; }
+.avatarNose { stroke: #8f6044; stroke-width: 9; }
+.noseLight { stroke: rgb(255 231 192 / 32%); stroke-width: 8; }
+.cheekDetail { stroke: rgb(113 67 46 / 28%); stroke-width: 6; }
+.friendlyCheeks {
+  fill: none;
+  opacity: 0;
+  stroke: rgb(128 70 50 / 26%);
+  stroke-linecap: round;
+  stroke-width: 5;
+  transition: opacity 180ms ease;
+}
+.businessAvatar[data-mood="friendly"] .friendlyCheeks { opacity: 1; }
+.friendlyBlush, .focusedBridge, .focusedEyeLines, .confidentEyeLine,
+.friendlySmileLines, .focusedMouthLine, .confidentSmileLine {
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+.friendlyBlush { fill: rgb(192 91 73 / 14%); filter: blur(3px); }
+.focusedBridge, .focusedEyeLines, .confidentEyeLine,
+.friendlySmileLines, .focusedMouthLine, .confidentSmileLine {
+  fill: none;
+  stroke: rgb(103 61 44 / 42%);
+  stroke-linecap: round;
+}
+.focusedBridge { stroke-width: 5; }
+.focusedEyeLines, .confidentEyeLine { stroke-width: 4; }
+.friendlySmileLines, .focusedMouthLine, .confidentSmileLine { stroke-width: 4; }
+.businessAvatar[data-mood="friendly"] .friendlyBlush,
+.businessAvatar[data-mood="friendly"] .friendlySmileLines { opacity: 1; }
+.businessAvatar[data-mood="focused"] .focusedBridge,
+.businessAvatar[data-mood="focused"] .focusedEyeLines,
+.businessAvatar[data-mood="focused"] .focusedMouthLine { opacity: 1; }
+.businessAvatar[data-mood="confident"] .confidentEyeLine,
+.businessAvatar[data-mood="confident"] .confidentSmileLine { opacity: 1; }
+.businessAvatar[data-mood="focused"] .pupils { animation: none; transform: translateY(2px) scale(0.96); }
+.businessAvatar[data-mood="confident"] .avatarHead { filter: url(#avatar-clay) brightness(1.025); }
+.lowerFace { transform: none; }
+.chinDetail { stroke: rgb(104 63 44 / 34%); stroke-width: 5; transform: translateY(calc(2px * var(--jaw-open, 0))); }
+.mouthRig {
+  transform: translateY(calc(5px * var(--jaw-open, 0)));
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 100ms ease;
+}
+.businessAvatar[data-mood="friendly"] .mouthRig { transform: translateY(calc((5px * var(--jaw-open, 0)) - 2px)) scaleX(1.07); }
+.businessAvatar[data-mood="focused"] .mouthRig { transform: translateY(calc((5px * var(--jaw-open, 0)) + 1px)) scaleX(0.94); }
+.businessAvatar[data-mood="confident"] .mouthRig { transform: translate(2px, calc((5px * var(--jaw-open, 0)) - 1px)) scaleX(1.03); }
+.moodMouthLines { pointer-events: none; }
+.mouthShape {
+  opacity: 0;
+  transform: scale(0.985);
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: opacity 28ms linear, transform 45ms ease;
+}
+.businessAvatar[data-viseme="rest"] .mouthRest,
+.businessAvatar[data-viseme="mbp"] .mouthMbp,
+.businessAvatar[data-viseme="fv"] .mouthFv,
+.businessAvatar[data-viseme="a"] .mouthA,
+.businessAvatar[data-viseme="e"] .mouthE,
+.businessAvatar[data-viseme="o"] .mouthO,
+.businessAvatar[data-viseme="u"] .mouthU,
+.businessAvatar[data-viseme="consonant"] .mouthConsonant { opacity: 1; transform: scale(1); }
+.lipUpper { fill: #86534a; }
+.lipLower { fill: #a86d5f; }
+.lipLine { fill: none; stroke: #3b2423; stroke-linecap: round; stroke-width: 3; }
+.mouthCavity { fill: #2c1a1c; }
+.teeth { fill: #f2e6d3; }
+.tongue { fill: #98504f; }
+.lipOutline { fill: none; stroke: #8c574e; stroke-linejoin: round; stroke-width: 5; }
+
+@keyframes composedPresence {
+  0%, 100% { transform: translateY(0) rotate(-0.12deg); }
+  50% { transform: translateY(-0.7%) rotate(0.12deg); }
+}
+@keyframes naturalBlink {
+  0%, 42%, 45%, 78%, 80%, 100% { transform: scaleY(1); }
+  43.2%, 44.1%, 79% { transform: scaleY(0.06); }
+}
+@keyframes consideredLook {
+  0%, 32%, 100% { transform: translateX(0); }
+  40%, 62% { transform: translateX(4px); }
+  70%, 82% { transform: translateX(-2px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .avatarBody, .avatarEyes, .pupils { animation: none; }
+  .raisedHand { transition: none; }
+}
