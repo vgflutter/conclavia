@@ -90,10 +90,12 @@ export function MeetingOutputSurface({
     let transcriptSocket: WebSocket | undefined;
     let reconnectTimer: number | undefined;
     let utteranceTimer: number | undefined;
+    let performanceResetTimer: number | undefined;
     let bufferedTranscript: RecallOutputTranscript | undefined;
     let meetingAudioStream: MediaStream | undefined;
 
     function resetPerformance() {
+      if (performanceResetTimer) window.clearTimeout(performanceResetTimer);
       if (animation) window.cancelAnimationFrame(animation);
       audio?.pause();
       if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -108,6 +110,16 @@ export function MeetingOutputSurface({
       setSpeaking(false);
     }
 
+    async function holdRaisedHandBeforeSpeaking(run: number) {
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => resolve());
+        });
+      });
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 900));
+      return active && run === speechRun;
+    }
+
     async function speak(command: SpokenCommand) {
       speechRun += 1;
       const run = speechRun;
@@ -117,6 +129,9 @@ export function MeetingOutputSurface({
       setGesture(performance.gesture);
 
       try {
+        if (command.kind === "correct" && !(await holdRaisedHandBeforeSpeaking(run))) {
+          return;
+        }
         const result = await generateLocalSpeech({
           text: command.response,
           language: speechLanguage,
@@ -129,7 +144,16 @@ export function MeetingOutputSurface({
         audioUrl = URL.createObjectURL(result.audio);
         audio = new Audio(audioUrl);
         audio.preload = "auto";
-        audio.onended = resetPerformance;
+        audio.onended = () => {
+          if (command.kind !== "correct") {
+            resetPerformance();
+            return;
+          }
+          performanceResetTimer = window.setTimeout(() => {
+            performanceResetTimer = undefined;
+            resetPerformance();
+          }, 900);
+        };
         await audio.play();
         if (!active || run !== speechRun) return;
         setSpeaking(true);
@@ -267,6 +291,7 @@ export function MeetingOutputSurface({
       window.clearInterval(timer);
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
       if (utteranceTimer) window.clearTimeout(utteranceTimer);
+      if (performanceResetTimer) window.clearTimeout(performanceResetTimer);
       transcriptSocket?.close();
       meetingAudioStream?.getTracks().forEach((track) => track.stop());
       if (animation) window.cancelAnimationFrame(animation);
@@ -283,6 +308,10 @@ export function MeetingOutputSurface({
     ? isItalian
       ? "STA PARLANDO"
       : "SPEAKING"
+    : gesture === "hand_raise"
+      ? isItalian
+        ? "CHIEDE LA PAROLA"
+        : "REQUESTING TO SPEAK"
     : status === "waiting_room"
       ? isItalian
         ? "IN ATTESA"

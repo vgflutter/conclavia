@@ -57,6 +57,7 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
   const objective = `Validare il flusso verticale ${marker}`;
   const rememberedFact = `La release ${marker} è fissata al 15 ottobre`;
   let meetingId: string | undefined;
+  let outputToken: string | undefined;
   const browserErrors: string[] = [];
   page.on("pageerror", (error) => browserErrors.push(error.message));
 
@@ -92,17 +93,37 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
       const meetingPayload = (await meetingResponse.json()) as {
         meeting: { bot: { outputToken: string } };
       };
+      outputToken = meetingPayload.meeting.bot.outputToken;
       const outputResponse = await request.get(
-        `/api/meeting-room/${meetingPayload.meeting.bot.outputToken}/state`,
+        `/api/meeting-room/${outputToken}/state`,
       );
       expect(outputResponse.ok()).toBeTruthy();
       expect(Object.keys(await outputResponse.json()).sort()).toEqual(["status"]);
 
       const protectedTranscript = await request.post(
-        `/api/meeting-room/${meetingPayload.meeting.bot.outputToken}/transcript`,
+        `/api/meeting-room/${outputToken}/transcript`,
         { data: { speakerName: "E2E", text: "Conclavia riepiloga" } },
       );
       expect(protectedTranscript.status()).toBe(409);
+    });
+
+    await test.step("alza la mano prima di una correzione", async () => {
+      expect(outputToken).toBeTruthy();
+      const outputPage = await page.context().newPage();
+      try {
+        await outputPage.goto(`/meeting-room/${outputToken}`);
+        await expect(outputPage.locator("svg[data-gesture='rest']")).toBeVisible();
+
+        const commandResponse = await request.post(`/api/meetings/${meetingId}/commands`, {
+          data: { kind: "correct", prompt: "Tre per tre fa dodici." },
+        });
+        expect(commandResponse.ok()).toBeTruthy();
+
+        await expect(outputPage.locator("svg[data-gesture='hand_raise']")).toBeVisible();
+        await expect(outputPage.getByText("CHIEDE LA PAROLA")).toBeVisible();
+      } finally {
+        await outputPage.close();
+      }
     });
 
     await test.step("aggiorna la scaletta e usa i comandi del collega", async () => {
