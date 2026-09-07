@@ -64,6 +64,18 @@ export async function POST(request: Request, context: RouteContext) {
         );
       }
 
+      const activeColleague = await MeetingModel.exists({
+        _id: { $ne: meeting._id },
+        meetingUrl: meeting.meetingUrl,
+        "bot.status": { $in: ["scheduling", "joining", "waiting_room", "joined"] },
+      });
+      if (activeColleague) {
+        return NextResponse.json(
+          { error: "Il collega digitale è già stato inviato a questo meeting." },
+          { status: 409 },
+        );
+      }
+
       const session = await adapter.join(
         serializeMeeting(meeting),
         new URL(request.url).origin,

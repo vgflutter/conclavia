@@ -56,6 +56,24 @@ export async function scheduleMeetingBot(
   meeting.bot.lastStatusAt = new Date();
   meeting.bot.lastError = undefined;
 
+  const joiningNow = meeting.scheduledStart.getTime() - Date.now() <= 2 * 60_000;
+  if (joiningNow) {
+    const activeColleague = await MeetingModel.exists({
+      _id: { $ne: meeting._id },
+      meetingUrl: meeting.meetingUrl,
+      "bot.status": { $in: ["scheduling", "joining", "waiting_room", "joined"] },
+    });
+    if (activeColleague) {
+      meeting.status = "failed";
+      meeting.bot.status = "failed";
+      meeting.bot.lastError =
+        "Il collega digitale è già stato inviato a questo meeting.";
+      meeting.bot.lastStatusAt = new Date();
+      await meeting.save();
+      return meeting;
+    }
+  }
+
   const botIdentityFilter = config.accountEmail
     ? { "bot.accountEmail": config.accountEmail }
     : { "bot.accessMode": config.accessMode };
@@ -79,7 +97,6 @@ export async function scheduleMeetingBot(
 
   try {
     const adapter = getMeetingBotAdapter();
-    const joiningNow = meeting.scheduledStart.getTime() - Date.now() <= 2 * 60_000;
     const session = joiningNow
       ? await adapter.join(serializeMeeting(meeting), config.publicBaseUrl || "")
       : await adapter.schedule(serializeMeeting(meeting));
