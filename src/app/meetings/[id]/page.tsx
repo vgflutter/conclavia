@@ -61,6 +61,25 @@ function MemoryList({ title, items }: { title: string; items: string[] }) {
   );
 }
 
+function TranscriptEntries({
+  transcript,
+}: {
+  transcript: MeetingResponse["transcript"];
+}) {
+  return (
+    <div className="max-h-96 space-y-4 overflow-y-auto pr-2">
+      {transcript.map((segment) => (
+        <div key={segment.sequence}>
+          <p className="text-xs font-semibold text-[#295c43]">
+            {segment.speakerName}
+          </p>
+          <p className="mt-1 text-sm leading-6 text-slate-600">{segment.text}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ContinuityCard({
   briefing,
   locale,
@@ -164,6 +183,18 @@ export default async function MeetingPage({ params }: MeetingPageProps) {
       new Date(meeting.scheduledStart).getTime()) /
       60_000,
   );
+  const meetingInProgress = ["joining", "waiting_room", "live", "processing"].includes(
+    meeting.status,
+  );
+  const transcriptCount = `${meeting.transcript.length} ${
+    isItalian
+      ? meeting.transcript.length === 1
+        ? "intervento"
+        : "interventi"
+      : meeting.transcript.length === 1
+        ? "segment"
+        : "segments"
+  }`;
 
   return (
     <div className="container-page py-10 sm:py-14">
@@ -318,35 +349,34 @@ export default async function MeetingPage({ params }: MeetingPageProps) {
           </div>
         </section>
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          <section className="card p-5 sm:p-7">
-            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#295c43]">
-              {isItalian ? "Trascrizione" : "Transcript"}
-            </p>
-            <h2 className="mt-2 text-xl font-semibold">
-              {meeting.transcript.length
-                ? `${meeting.transcript.length} ${isItalian ? (meeting.transcript.length === 1 ? "intervento" : "interventi") : (meeting.transcript.length === 1 ? "segment" : "segments")}`
-                : isItalian
-                  ? "Nessun intervento ancora"
-                  : "No segments yet"}
-            </h2>
-            {meeting.transcript.length ? (
-              <div className="mt-5 max-h-96 space-y-4 overflow-y-auto pr-2">
-                {meeting.transcript.map((segment) => (
-                  <div key={segment.sequence}>
-                    <p className="text-xs font-semibold text-[#295c43]">{segment.speakerName}</p>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">{segment.text}</p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-3 text-sm leading-6 text-slate-500">
-                {isItalian
-                  ? "La trascrizione comparirà qui durante il meeting."
-                  : "The transcript will appear here during the meeting."}
+        <div className={`grid gap-6 ${meetingInProgress ? "lg:grid-cols-2" : ""}`}>
+          {meetingInProgress && (
+            <section className="card p-5 sm:p-7">
+              <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#295c43]">
+                {isItalian ? "Durante il meeting" : "During the meeting"}
               </p>
-            )}
-          </section>
+              <h2 className="mt-2 text-xl font-semibold">
+                {meeting.transcript.length
+                  ? isItalian
+                    ? `Trascrizione in diretta · ${transcriptCount}`
+                    : `Live transcript · ${transcriptCount}`
+                  : isItalian
+                    ? "In attesa del primo intervento"
+                    : "Waiting for the first contribution"}
+              </h2>
+              {meeting.transcript.length ? (
+                <div className="mt-5">
+                  <TranscriptEntries transcript={meeting.transcript} />
+                </div>
+              ) : (
+                <p className="mt-3 text-sm leading-6 text-slate-500">
+                  {isItalian
+                    ? "La trascrizione comparirà qui durante il meeting."
+                    : "The transcript will appear here during the meeting."}
+                </p>
+              )}
+            </section>
+          )}
 
           <section className="card p-5 sm:p-7">
             <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#295c43]">
@@ -401,6 +431,38 @@ export default async function MeetingPage({ params }: MeetingPageProps) {
             </dl>
           </section>
         </div>
+
+        {!meetingInProgress && meeting.transcript.length > 0 && (
+          <details className="card group overflow-hidden">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-5 p-5 sm:p-7">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#295c43]">
+                  {isItalian ? "Dettagli del meeting" : "Meeting details"}
+                </p>
+                <h2 className="mt-2 text-xl font-semibold">
+                  {isItalian ? "Trascrizione completa" : "Full transcript"}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  {isItalian
+                    ? "Aprila solo quando vuoi verificare un passaggio preciso. Il riepilogo sopra resta lo storico principale."
+                    : "Open it when you need to verify a specific passage. The summary above remains the main record."}
+                </p>
+              </div>
+              <span className="flex shrink-0 items-center gap-3 text-sm font-semibold text-[#295c43]">
+                {transcriptCount}
+                <span
+                  aria-hidden="true"
+                  className="text-lg transition-transform group-open:rotate-180"
+                >
+                  ⌄
+                </span>
+              </span>
+            </summary>
+            <div className="border-t border-slate-100 px-5 py-6 sm:px-7">
+              <TranscriptEntries transcript={meeting.transcript} />
+            </div>
+          </details>
+        )}
       </div>
     </div>
   );

@@ -60,6 +60,7 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
   const title = `E2E Meeting ${marker}`;
   const objective = `Validare il flusso verticale ${marker}`;
   const rememberedFact = `La release ${marker} è fissata al 15 ottobre`;
+  const transcriptPassage = `Passaggio da verificare ${marker}`;
   let meetingId: string | undefined;
   let outputToken: string | undefined;
   let assistantName = "Conclavia";
@@ -117,6 +118,25 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
         { data: { speakerName: "E2E", text: "Conclavia riepiloga" } },
       );
       expect(protectedTranscript.status()).toBe(409);
+
+      const providerTranscript = await request.post(
+        `/api/webhooks/attendee?meeting_token=${outputToken}`,
+        {
+          data: {
+            idempotency_key: `transcript-${marker}`,
+            bot_id: `bot-${marker}`,
+            bot_metadata: { conclavia_meeting_id: meetingId },
+            trigger: "transcript.update",
+            data: {
+              speaker_name: "Vincenzo",
+              timestamp_ms: 1_000,
+              duration_ms: 1_200,
+              transcription: { transcript: transcriptPassage, words: [] },
+            },
+          },
+        },
+      );
+      expect(providerTranscript.ok()).toBeTruthy();
     });
 
     await test.step("rende disponibile la superficie dell’avatar", async () => {
@@ -169,6 +189,11 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
         .fill(`Confermare il budget ${marker}`);
       await page.getByRole("button", { name: "Salva nella memoria" }).click();
       await expect(page.getByText("Memoria aggiornata.")).toBeVisible();
+
+      await expect(page.getByText("Trascrizione completa")).toBeVisible();
+      await expect(page.getByText(transcriptPassage)).toBeHidden();
+      await page.getByText("Trascrizione completa").click();
+      await expect(page.getByText(transcriptPassage)).toBeVisible();
 
       await page.goto("/memory");
       const memoryCard = page.getByRole("article").filter({ hasText: title });

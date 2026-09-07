@@ -48,7 +48,7 @@ The participant name configured in **Avatar** is also its wake phrase. If the na
 
 When proactive contributions are enabled, the colleague checks substantive statements for material errors and for reliable stored information that would advance the current objective or agenda. It raises its hand and prepares the contribution, but does not speak yet. A participant must grant the floor using its configured name, for example **“Nora, go ahead”** or **“Nora, vai pure”**. Because the answer is prepared while the hand is raised, playback can begin without a second model request.
 
-At the end of a meeting, the transcript is condensed into an overview, facts, decisions, actions and open questions. Those items become the continuity briefing for later appointments in the same series.
+At the end of a meeting, the transcript is condensed into an overview, facts, decisions, actions and open questions. Those items become the continuity briefing for later appointments in the same series. The live transcript remains visible while the meeting is running; afterward it is kept out of the primary workflow and can be expanded only when someone needs to verify a specific passage.
 
 The assistant personality has two deliberately simple controls: response length and attitude. Those choices are included in the meeting prompt.
 
@@ -177,7 +177,7 @@ This release is designed as a private, single-workspace application and does not
 | `/meetings` | Dashboard for meetings and series. |
 | `/meetings/new` | Create one Teams meeting or a multi-appointment series. |
 | `/meetings/series/[id]` | Manage appointments, shared agenda, and continuity. |
-| `/meetings/[id]` | Run commands, follow the agenda, view transcript, and save the outcome. |
+| `/meetings/[id]` | Follow the agenda, use the assistant, review the summary, and optionally expand the full transcript. |
 | `/memory` | Review meeting and series memory. |
 | `/avatar` | Manage identity, personality, and voice. |
 | `/avatar/test` | Test voice, expressions, lip sync, and gestures without a meeting. |
