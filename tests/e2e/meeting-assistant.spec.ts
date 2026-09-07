@@ -1,5 +1,11 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
+import {
+  attendeeTranscript,
+  parseAttendeeWebhook,
+  signAttendeeWebhookPayload,
+  verifyAttendeeWebhook,
+} from "../../src/lib/attendee-webhook";
 import { parseMeetingVoiceCommand } from "../../src/lib/meeting-command";
 import { parseRecallOutputTranscript } from "../../src/lib/recall-transcript";
 
@@ -66,15 +72,13 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
       await page.getByLabel("Obiettivo del meeting").fill(objective);
       await page.getByPlaceholder("Es. Approvare la roadmap").fill("Confermare la roadmap");
       await page.getByLabel("Link Microsoft Teams").fill(teamLink);
+      await expect(page.getByRole("button", { name: /Entra ora/ })).toHaveCount(0);
       await page.getByLabel("Data e ora").fill(futureLocalDateTime(3));
 
       const automaticJoin = page.getByRole("checkbox", {
         name: /Programma l.ingresso automatico/,
       });
-      await expect(automaticJoin).toBeDisabled();
-      await expect(
-        page.getByText("L’ingresso automatico non è ancora attivo.", { exact: false }),
-      ).toBeVisible();
+      await expect(automaticJoin).toHaveCount(0);
 
       await page.getByRole("button", { name: "Memorizza meeting" }).click();
       await page.waitForURL(/\/meetings\/[a-f0-9]{24}$/);
@@ -240,6 +244,10 @@ test("comandi vocali: riconosce italiano e inglese dopo la parola di attivazione
     .toEqual({ kind: "summary", prompt: "" });
   expect(parseMeetingVoiceCommand("Conclavia, what did we decide?", "Conclavia"))
     .toEqual({ kind: "ask", prompt: "what did we decide?" });
+  expect(parseMeetingVoiceCommand("Assistente, quanto fa tre per tre?", "Conclavia"))
+    .toEqual({ kind: "ask", prompt: "quanto fa tre per tre?" });
+  expect(parseMeetingVoiceCommand("Ciao, mi senti?", "Conclavia"))
+    .toEqual({ kind: "ask", prompt: "Mi senti?" });
   expect(parseMeetingVoiceCommand("Questa frase non è un comando", "Conclavia"))
     .toBeUndefined();
 });
@@ -275,6 +283,34 @@ test("trascrizione live: interpreta il messaggio inviato alla pagina del meeting
     speakerName: "Vincenzo",
     text: "Conclavia, riepiloga",
     language: "it",
+    startMs: 12_400,
+    endMs: 13_500,
+  });
+});
+
+test("Attendee: verifica e interpreta una trascrizione firmata", () => {
+  const payload = {
+    idempotency_key: "db00b806-7fd5-4df0-bc72-446c6294481a",
+    bot_id: "bot_conclaviae2e",
+    bot_metadata: { conclavia_meeting_id: "507f1f77bcf86cd799439011" },
+    trigger: "transcript.update",
+    data: {
+      speaker_name: "Vincenzo",
+      timestamp_ms: 12_400,
+      duration_ms: 1_100,
+      transcription: { transcript: "Conclavia, riepiloga", words: [] },
+    },
+  };
+  const secret = Buffer.from("conclavia-webhook-test").toString("base64");
+  const signature = signAttendeeWebhookPayload(secret, payload).toString("base64");
+  const headers = new Headers({ "X-Webhook-Signature": signature });
+
+  expect(() => verifyAttendeeWebhook(secret, headers, payload)).not.toThrow();
+  const event = parseAttendeeWebhook(payload);
+  expect(event).toBeDefined();
+  expect(attendeeTranscript(event!)).toEqual({
+    speakerName: "Vincenzo",
+    text: "Conclavia, riepiloga",
     startMs: 12_400,
     endMs: 13_500,
   });

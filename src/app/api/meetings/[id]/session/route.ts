@@ -71,14 +71,14 @@ export async function POST(request: Request, context: RouteContext) {
       const config = getMeetingBotRuntimeConfig();
       meeting.status = adapter.live ? "joining" : "live";
       meeting.bot.provider = session.provider;
-      meeting.bot.accessMode = "verified_guest";
+      meeting.bot.accessMode = config.accessMode;
       meeting.bot.status = adapter.live ? "joining" : "joined";
       meeting.bot.externalBotId = session.externalBotId;
       meeting.bot.accountEmail = adapter.live ? config.accountEmail : undefined;
       meeting.bot.outputUrl = session.outputUrl;
       meeting.bot.joinedAt = adapter.live ? undefined : session.joinedAt;
       meeting.bot.leftAt = undefined;
-      meeting.bot.providerStatusCode = adapter.live ? "joining_call" : "preview";
+      meeting.bot.providerStatusCode = adapter.live ? "joining" : "preview";
       meeting.bot.lastStatusAt = new Date();
       meeting.bot.lastError = undefined;
       await meeting.save();

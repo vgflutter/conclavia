@@ -47,7 +47,7 @@ export function serializeMeeting(document: MeetingDocument): MeetingResponse {
     })),
     bot: {
       provider: document.bot.provider,
-      accessMode: document.bot.accessMode || "verified_guest",
+      accessMode: document.bot.accessMode || "anonymous_guest",
       status: document.bot.status,
       externalBotId: document.bot.externalBotId || undefined,
       accountEmail: document.bot.accountEmail || undefined,

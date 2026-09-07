@@ -56,10 +56,13 @@ export async function scheduleMeetingBot(
   meeting.bot.lastStatusAt = new Date();
   meeting.bot.lastError = undefined;
 
+  const botIdentityFilter = config.accountEmail
+    ? { "bot.accountEmail": config.accountEmail }
+    : { "bot.accessMode": config.accessMode };
   const overlappingMeeting = await MeetingModel.exists({
     _id: { $ne: meeting._id },
     autoJoin: true,
-    "bot.accountEmail": config.accountEmail,
+    ...botIdentityFilter,
     "bot.status": { $in: ["scheduled", "joining", "waiting_room", "joined"] },
     scheduledStart: { $lt: meeting.scheduledEnd },
     scheduledEnd: { $gt: meeting.scheduledStart },
@@ -75,26 +78,30 @@ export async function scheduleMeetingBot(
   }
 
   try {
-    const session = await getMeetingBotAdapter().schedule(serializeMeeting(meeting));
-    meeting.status = "scheduled";
+    const adapter = getMeetingBotAdapter();
+    const joiningNow = meeting.scheduledStart.getTime() - Date.now() <= 2 * 60_000;
+    const session = joiningNow
+      ? await adapter.join(serializeMeeting(meeting), config.publicBaseUrl || "")
+      : await adapter.schedule(serializeMeeting(meeting));
+    meeting.status = joiningNow ? "joining" : "scheduled";
     meeting.bot.provider = session.provider;
-    meeting.bot.accessMode = "verified_guest";
-    meeting.bot.status = "scheduled";
+    meeting.bot.accessMode = config.accessMode;
+    meeting.bot.status = joiningNow ? "joining" : "scheduled";
     meeting.bot.externalBotId = session.externalBotId;
     meeting.bot.accountEmail = config.accountEmail;
     meeting.bot.outputUrl = session.outputUrl;
     meeting.bot.scheduledFor = session.scheduledFor || meeting.scheduledStart;
     meeting.bot.joinedAt = undefined;
     meeting.bot.leftAt = undefined;
-    meeting.bot.providerStatusCode = "scheduled";
+    meeting.bot.providerStatusCode = joiningNow ? "joining" : "scheduled";
     meeting.bot.lastStatusAt = new Date();
     meeting.bot.lastError = undefined;
     await meeting.save();
   } catch (error) {
     console.error("Unable to schedule meeting bot", error);
     meeting.status = "failed";
-    meeting.bot.provider = "recall";
-    meeting.bot.accessMode = "verified_guest";
+    meeting.bot.provider = config.provider === "attendee" ? "attendee" : "recall";
+    meeting.bot.accessMode = config.accessMode;
     meeting.bot.status = "failed";
     meeting.bot.accountEmail = config.accountEmail;
     meeting.bot.providerStatusCode = providerFailureCode(error) || "schedule_failed";
@@ -107,9 +114,12 @@ export async function scheduleMeetingBot(
 }
 
 export async function cancelMeetingBot(meeting: MeetingDocument): Promise<void> {
-  if (!meeting.bot.externalBotId || meeting.bot.provider !== "recall") return;
+  if (
+    !meeting.bot.externalBotId ||
+    !["recall", "attendee"].includes(meeting.bot.provider)
+  ) return;
 
-  const adapter = getMeetingBotAdapter();
+  const adapter = getMeetingBotAdapter(meeting.bot.provider);
   if (!adapter.live) {
     throw new MeetingBotConfigurationError(
       "Automatic entry must be connected before this meeting can be removed.",
@@ -126,9 +136,19 @@ export async function cancelMeetingBot(meeting: MeetingDocument): Promise<void> 
       await meeting.save();
       return;
     } catch (error) {
-      if (!(error instanceof MeetingBotProviderError) || error.status !== 405) {
+      if (
+        !(error instanceof MeetingBotProviderError) ||
+        ![400, 405].includes(error.status || 0)
+      ) {
         throw error;
       }
+      const result = await adapter.leave(meeting.bot.externalBotId);
+      meeting.bot.status = "left";
+      meeting.bot.leftAt = result.leftAt;
+      meeting.bot.providerStatusCode = "removed";
+      meeting.bot.lastStatusAt = result.leftAt;
+      await meeting.save();
+      return;
     }
   }
 

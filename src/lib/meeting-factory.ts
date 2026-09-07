@@ -70,9 +70,10 @@ export function meetingDocumentData(
     commandHistory: [],
     bot: {
       provider: "mock" as const,
-      accessMode: "verified_guest" as const,
+      accessMode: "anonymous_guest" as const,
       status: "not_scheduled" as const,
       outputToken,
+      processedWebhookIds: [],
     },
     voice: localVoiceConfiguration(),
     retention: {

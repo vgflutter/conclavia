@@ -20,7 +20,11 @@ import {
   type RecallOutputTranscript,
 } from "@/lib/recall-transcript";
 import type { AssistantVoiceStyle } from "@/types/assistant-profile";
-import type { MeetingCommandKind, MeetingStatus } from "@/types/meeting";
+import type {
+  MeetingBotProvider,
+  MeetingCommandKind,
+  MeetingStatus,
+} from "@/types/meeting";
 
 import styles from "./MeetingOutputSurface.module.css";
 
@@ -51,6 +55,7 @@ export function MeetingOutputSurface({
   voiceStyle,
   speakingRate,
   inMeeting,
+  meetingProvider,
 }: {
   outputToken: string;
   title: string;
@@ -63,6 +68,7 @@ export function MeetingOutputSurface({
   voiceStyle: AssistantVoiceStyle;
   speakingRate: number;
   inMeeting: boolean;
+  meetingProvider: MeetingBotProvider;
 }) {
   const [status, setStatus] = useState(initialStatus);
   const [viseme, setViseme] = useState<AvatarViseme>("rest");
@@ -85,6 +91,7 @@ export function MeetingOutputSurface({
     let reconnectTimer: number | undefined;
     let utteranceTimer: number | undefined;
     let bufferedTranscript: RecallOutputTranscript | undefined;
+    let meetingAudioStream: MediaStream | undefined;
 
     function resetPerformance() {
       if (animation) window.cancelAnimationFrame(animation);
@@ -237,7 +244,19 @@ export function MeetingOutputSurface({
 
     if (inMeeting) {
       void prepareLocalVoice(voiceStyle).catch(() => undefined);
-      connectTranscript();
+      if (meetingProvider === "recall") connectTranscript();
+      if (meetingProvider === "attendee" && navigator.mediaDevices?.getUserMedia) {
+        void navigator.mediaDevices
+          .getUserMedia({ audio: true, video: false })
+          .then((stream) => {
+            if (!active) {
+              stream.getTracks().forEach((track) => track.stop());
+              return;
+            }
+            meetingAudioStream = stream;
+          })
+          .catch(() => undefined);
+      }
     }
     void pollMeeting();
     const timer = window.setInterval(pollMeeting, 3_000);
@@ -249,11 +268,12 @@ export function MeetingOutputSurface({
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
       if (utteranceTimer) window.clearTimeout(utteranceTimer);
       transcriptSocket?.close();
+      meetingAudioStream?.getTracks().forEach((track) => track.stop());
       if (animation) window.cancelAnimationFrame(animation);
       audio?.pause();
       if (audioUrl) URL.revokeObjectURL(audioUrl);
     };
-  }, [inMeeting, outputToken, speakingRate, speechLanguage, voiceStyle]);
+  }, [inMeeting, meetingProvider, outputToken, speakingRate, speechLanguage, voiceStyle]);
 
   const stageStyle = {
     "--voice-level": voiceLevel,

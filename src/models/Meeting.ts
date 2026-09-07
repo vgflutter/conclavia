@@ -106,12 +106,17 @@ const summarySchema = new Schema<MeetingSummary>(
 
 const botSchema = new Schema<MeetingBotConfiguration>(
   {
-    provider: { type: String, enum: ["mock", "recall"], required: true, default: "mock" },
+    provider: {
+      type: String,
+      enum: ["mock", "recall", "attendee"],
+      required: true,
+      default: "mock",
+    },
     accessMode: {
       type: String,
       enum: ["verified_guest", "anonymous_guest"],
       required: true,
-      default: "verified_guest",
+      default: "anonymous_guest",
     },
     status: {
       type: String,
@@ -129,6 +134,7 @@ const botSchema = new Schema<MeetingBotConfiguration>(
     providerStatusCode: { type: String, trim: true, maxlength: 160 },
     lastStatusAt: { type: Date },
     lastCorrectionCheckAt: { type: Date },
+    processedWebhookIds: { type: [String], required: true, default: [] },
     lastError: { type: String, trim: true, maxlength: 2_000 },
   },
   { _id: false },

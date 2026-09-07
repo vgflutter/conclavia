@@ -8,6 +8,7 @@ import type { CorrectionPolicy, MeetingLanguage } from "@/types/meeting";
 import type { MeetingAutomationPublicConfig } from "@/types/meeting-automation";
 
 type MeetingMode = "single" | "series";
+type MeetingTiming = "now" | "scheduled";
 
 type AppointmentDraft = {
   key: string;
@@ -43,14 +44,18 @@ export function MeetingCreateForm({
   const isItalian = locale === "it";
   const nextAppointmentKey = useRef(2);
   const nextAgendaKey = useRef(2);
+  const automaticEntryReady = automation.state === "ready";
   const [mode, setMode] = useState<MeetingMode>("single");
+  const [timing, setTiming] = useState<MeetingTiming>(
+    automaticEntryReady ? "now" : "scheduled",
+  );
   const [title, setTitle] = useState("");
   const [objective, setObjective] = useState("");
   const [appointments, setAppointments] = useState<AppointmentDraft[]>([
     initialAppointment("appointment-1"),
   ]);
   const [language, setLanguage] = useState<MeetingLanguage>("auto");
-  const [autoJoin, setAutoJoin] = useState(automation.state === "ready");
+  const [autoJoin, setAutoJoin] = useState(automaticEntryReady);
   const [agenda, setAgenda] = useState<AgendaDraft[]>([
     { key: "agenda-1", title: "", mandatory: true },
   ]);
@@ -62,6 +67,9 @@ export function MeetingCreateForm({
 
   function selectMode(nextMode: MeetingMode) {
     setMode(nextMode);
+    setTiming(
+      nextMode === "series" || !automaticEntryReady ? "scheduled" : "now",
+    );
     if (nextMode === "single" && appointments.length > 1) {
       setAppointments([appointments[0]]);
     }
@@ -111,11 +119,17 @@ export function MeetingCreateForm({
     setError(undefined);
 
     try {
-      const normalizedAppointments = appointments.map((appointment) => ({
+      const joiningNow = mode === "single" && timing === "now";
+      const automaticEntry = joiningNow ? true : autoJoin;
+      const immediateStart = new Date(Date.now() + 30_000).toISOString();
+      const normalizedAppointments = appointments.map((appointment, index) => ({
         label: appointment.label,
         meetingUrl: appointment.meetingUrl,
-        scheduledStart: new Date(appointment.scheduledStart).toISOString(),
-        durationMinutes: appointment.durationMinutes,
+        scheduledStart:
+          joiningNow && index === 0
+            ? immediateStart
+            : new Date(appointment.scheduledStart).toISOString(),
+        durationMinutes: joiningNow && index === 0 ? 60 : appointment.durationMinutes,
       }));
       const normalizedAgenda = agenda
         .filter((item) => item.title.trim())
@@ -133,7 +147,7 @@ export function MeetingCreateForm({
                   objective,
                   timezone,
                   language,
-                  autoJoin,
+                  autoJoin: automaticEntry,
                   agenda: normalizedAgenda,
                   correctionPolicy,
                   appointments: normalizedAppointments,
@@ -143,7 +157,7 @@ export function MeetingCreateForm({
                   objective,
                   timezone,
                   language,
-                  autoJoin,
+                  autoJoin: automaticEntry,
                   agenda: normalizedAgenda,
                   correctionPolicy,
                   ...normalizedAppointments[0],
@@ -352,6 +366,57 @@ export function MeetingCreateForm({
           )}
         </div>
 
+        {mode === "single" && automaticEntryReady && (
+          <fieldset className="mt-6">
+            <legend className="label">
+              {isItalian ? "Quando deve entrare" : "When should it join"}
+            </legend>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setTiming("now");
+                  setAutoJoin(true);
+                }}
+                aria-pressed={timing === "now"}
+                className={`rounded-xl border p-4 text-left transition ${
+                  timing === "now"
+                    ? "border-[#6e9a7d] bg-[#e9f2ec] text-[#204d36]"
+                    : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                }`}
+              >
+                <strong className="block text-sm">
+                  {isItalian ? "Entra ora" : "Join now"}
+                </strong>
+                <span className="mt-1 block text-xs leading-5">
+                  {isItalian
+                    ? "Entra appena salvi il meeting."
+                    : "Join as soon as you save the meeting."}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTiming("scheduled")}
+                aria-pressed={timing === "scheduled"}
+                className={`rounded-xl border p-4 text-left transition ${
+                  timing === "scheduled"
+                    ? "border-[#6e9a7d] bg-[#e9f2ec] text-[#204d36]"
+                    : "border-slate-200 text-slate-500 hover:bg-slate-50"
+                }`}
+              >
+                <strong className="block text-sm">
+                  {isItalian ? "Pianifica" : "Schedule"}
+                </strong>
+                <span className="mt-1 block text-xs leading-5">
+                  {isItalian
+                    ? "Scegli data, ora e durata."
+                    : "Choose the date, time and duration."}
+                </span>
+              </button>
+            </div>
+          </fieldset>
+        )}
+
         <div className="mt-6 space-y-4">
           {appointments.map((appointment, index) => (
             <fieldset key={appointment.key} className="rounded-2xl border border-slate-200 bg-[#fafbf9] p-4 sm:p-5">
@@ -405,36 +470,40 @@ export function MeetingCreateForm({
                     required
                   />
                 </div>
-                <div>
-                  <label className="label" htmlFor={`${appointment.key}-start`}>
-                    {isItalian ? "Data e ora" : "Date and time"}
-                  </label>
-                  <input
-                    id={`${appointment.key}-start`}
-                    type="datetime-local"
-                    className="input"
-                    value={appointment.scheduledStart}
-                    onChange={(event) => updateAppointment(appointment.key, "scheduledStart", event.target.value)}
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="label" htmlFor={`${appointment.key}-duration`}>
-                    {isItalian ? "Durata" : "Duration"}
-                  </label>
-                  <select
-                    id={`${appointment.key}-duration`}
-                    className="input"
-                    value={appointment.durationMinutes}
-                    onChange={(event) => updateAppointment(appointment.key, "durationMinutes", Number(event.target.value))}
-                  >
-                    <option value={30}>30 min</option>
-                    <option value={45}>45 min</option>
-                    <option value={60}>60 min</option>
-                    <option value={90}>90 min</option>
-                    <option value={120}>120 min</option>
-                  </select>
-                </div>
+                {(mode === "series" || timing === "scheduled") && (
+                  <>
+                    <div>
+                      <label className="label" htmlFor={`${appointment.key}-start`}>
+                        {isItalian ? "Data e ora" : "Date and time"}
+                      </label>
+                      <input
+                        id={`${appointment.key}-start`}
+                        type="datetime-local"
+                        className="input"
+                        value={appointment.scheduledStart}
+                        onChange={(event) => updateAppointment(appointment.key, "scheduledStart", event.target.value)}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="label" htmlFor={`${appointment.key}-duration`}>
+                        {isItalian ? "Durata" : "Duration"}
+                      </label>
+                      <select
+                        id={`${appointment.key}-duration`}
+                        className="input"
+                        value={appointment.durationMinutes}
+                        onChange={(event) => updateAppointment(appointment.key, "durationMinutes", Number(event.target.value))}
+                      >
+                        <option value={30}>30 min</option>
+                        <option value={45}>45 min</option>
+                        <option value={60}>60 min</option>
+                        <option value={90}>90 min</option>
+                        <option value={120}>120 min</option>
+                      </select>
+                    </div>
+                  </>
+                )}
               </div>
             </fieldset>
           ))}
@@ -492,29 +561,39 @@ export function MeetingCreateForm({
               <option value="off">{isItalian ? "Non intervenire" : "Do not intervene"}</option>
             </select>
           </div>
-          <label className="flex items-start gap-3 rounded-xl bg-[#f3f7f4] p-4 sm:col-span-2">
-            <input
-              type="checkbox"
-              checked={autoJoin}
-              onChange={(event) => setAutoJoin(event.target.checked)}
-              disabled={automation.state !== "ready"}
-              className="mt-0.5 size-4 accent-[#295c43]"
-            />
-            <span>
-              <span className="block text-sm font-semibold">
-                {isItalian ? "Programma l’ingresso automatico" : "Schedule automatic join"}
-              </span>
-              <span className="mt-1 block text-xs leading-5 text-slate-500">
+          {automaticEntryReady && mode === "single" && timing === "now" ? (
+            <div className="rounded-xl bg-[#f3f7f4] p-4 sm:col-span-2">
+              <p className="text-sm font-semibold text-[#204d36]">
+                {isItalian ? "Ingresso immediato" : "Immediate entry"}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
                 {isItalian
-                  ? automation.state === "ready"
-                    ? `Il collega digitale entrerà con l’identità ${automation.accountEmail}. Se è prevista una sala d’attesa, potrebbe dover essere ammesso.`
-                    : "L’ingresso automatico non è ancora attivo. Puoi comunque preparare il meeting e usare la memoria."
-                  : automation.state === "ready"
-                    ? `The digital colleague will join as ${automation.accountEmail}. It may need to be admitted if the meeting has a waiting room.`
-                    : "Automatic entry is not active yet. You can still prepare the meeting and use its memory."}
+                  ? "Il collega digitale entrerà appena salvi. Se trova una sala d’attesa, dovrai ammetterlo."
+                  : "The digital colleague will join as soon as you save. If it reaches a lobby, you will need to admit it."}
+              </p>
+            </div>
+          ) : automaticEntryReady ? (
+            <label className="flex items-start gap-3 rounded-xl bg-[#f3f7f4] p-4 sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={autoJoin}
+                onChange={(event) => setAutoJoin(event.target.checked)}
+                className="mt-0.5 size-4 accent-[#295c43]"
+              />
+              <span>
+                <span className="block text-sm font-semibold">
+                  {isItalian
+                    ? "Programma l’ingresso automatico"
+                    : "Schedule automatic join"}
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-slate-500">
+                  {isItalian
+                    ? "Il collega digitale entrerà all’orario indicato. Se trova una sala d’attesa, dovrai ammetterlo."
+                    : "The digital colleague will join at the selected time. If it reaches a lobby, you will need to admit it."}
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
+          ) : null}
           <div className="rounded-xl bg-[#f3f7f4] p-4 sm:col-span-2">
             <p className="text-sm font-semibold text-[#204d36]">{isItalian ? "Comandi sempre attivi" : "Commands always enabled"}</p>
             <p className="mt-1 text-xs leading-5 text-slate-500">{isItalian ? "“Conclavia, ricorda…”, “riepiloga”, “rispondi…” e “verifica…”." : "“Conclavia, remember…”, “summarize”, “answer…” and “verify…”."}</p>
@@ -548,20 +627,18 @@ export function MeetingCreateForm({
         </div>
       </section>
 
-      <div className={`rounded-2xl border p-4 text-sm leading-6 ${automation.state === "ready" ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-amber-200 bg-amber-50 text-amber-950"}`}>
-        <strong>
-          {automation.state === "ready"
-            ? isItalian ? "Accesso Teams pronto:" : "Teams access ready:"
-            : isItalian ? "Ingresso automatico non disponibile:" : "Automatic entry unavailable:"}
-        </strong>{" "}
-        {automation.state === "ready"
-          ? isItalian
-            ? "salvando il meeting programmerai anche l’ingresso del collega digitale."
-            : "saving the meeting will also schedule the digital colleague."
-          : isItalian
-            ? "puoi salvare il meeting e provare l’avatar; l’ingresso automatico resterà disattivato."
-            : "you can save the meeting and preview the avatar; automatic entry will remain disabled."}
-      </div>
+      {automaticEntryReady && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
+          <strong>{isItalian ? "Tutto pronto:" : "Everything is ready:"}</strong>{" "}
+          {isItalian
+            ? mode === "single" && timing === "now"
+              ? "salvando il meeting il collega digitale inizierà a entrare."
+              : "salvando il meeting programmerai anche il suo ingresso."
+            : mode === "single" && timing === "now"
+              ? "saving the meeting will start the digital colleague’s entry."
+              : "saving the meeting will also schedule its entry."}
+        </div>
+      )}
 
       {error && (
         <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-700">
@@ -580,8 +657,12 @@ export function MeetingCreateForm({
                 ? "Crea serie"
                 : "Create series"
               : isItalian
-                ? "Memorizza meeting"
-                : "Save meeting"}
+                ? timing === "now"
+                  ? "Salva e fai entrare"
+                  : "Memorizza meeting"
+                : timing === "now"
+                  ? "Save and join"
+                  : "Save meeting"}
         </button>
       </div>
     </form>

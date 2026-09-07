@@ -62,10 +62,11 @@ export function MeetingSessionControls({
   const scheduled = bot.status === "scheduled" || bot.status === "scheduling";
   const failed = bot.status === "failed" || status === "failed";
 
+  if (!liveIntegration) return null;
+
   return (
     <div className="space-y-3">
-      {liveIntegration ? (
-        <>
+      <>
           {active ? (
             <button
               type="button"
@@ -136,14 +137,7 @@ export function MeetingSessionControls({
                 : "The digital colleague is in the waiting room. A participant must admit it."}
             </p>
           )}
-        </>
-      ) : (
-        <p className="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">
-          {isItalian
-            ? "L’ingresso automatico non è ancora attivo. Il meeting e la sua memoria restano utilizzabili."
-            : "Automatic entry is not active yet. The meeting and its memory remain available."}
-        </p>
-      )}
+      </>
 
       {(bot.lastError || error) && (
         <p className="rounded-xl bg-red-50 p-3 text-xs leading-5 text-red-800">

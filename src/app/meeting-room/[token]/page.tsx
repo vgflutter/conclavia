@@ -36,6 +36,7 @@ export default async function MeetingRoomPage({
       voiceStyle={profile.voice.style}
       speakingRate={profile.voice.speakingRate}
       inMeeting={query.mode === "meeting"}
+      meetingProvider={meeting.bot.provider}
     />
   );
 }

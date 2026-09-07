@@ -176,14 +176,14 @@ export function AvatarSettingsForm({ profile }: { profile: AssistantProfileRespo
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#295c43]">{isItalian ? "Voce" : "Voice"}</p>
-              <h2 className="mt-2 text-xl font-semibold">{isItalian ? "Voce naturale, italiano e inglese" : "Natural voice, Italian and English"}</h2>
+              <h2 className="mt-2 text-xl font-semibold">{isItalian ? "Una voce chiara e professionale" : "A clear, professional voice"}</h2>
             </div>
-            <span className="rounded-full bg-[#e4eee7] px-3 py-1 text-xs font-semibold text-[#295c43]">{isItalian ? "Senza costi a consumo" : "No usage fees"}</span>
+            <span className="rounded-full bg-[#e4eee7] px-3 py-1 text-xs font-semibold text-[#295c43]">{isItalian ? "Italiano e inglese" : "Italian and English"}</span>
           </div>
           <p className="mt-3 text-sm leading-6 text-slate-500">
             {isItalian
-              ? "La voce viene generata direttamente sul dispositivo e pronuncia italiano e inglese senza richiedere un abbonamento vocale."
-              : "Voice is generated directly on the device and speaks Italian and English without requiring a voice subscription."}
+              ? "Scegli il timbro e la velocità con cui il collega digitale parlerà durante i meeting."
+              : "Choose the voice and speaking pace the digital colleague will use during meetings."}
           </p>
           <div className="mt-6 grid gap-5 sm:grid-cols-2">
             <div>

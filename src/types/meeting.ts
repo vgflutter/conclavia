@@ -12,7 +12,7 @@ export type MeetingStatus =
   | "cancelled"
   | "failed";
 
-export type MeetingBotProvider = "mock" | "recall";
+export type MeetingBotProvider = "mock" | "recall" | "attendee";
 export type MeetingAccessMode = "verified_guest" | "anonymous_guest";
 export type MeetingBotStatus =
   | "not_scheduled"
@@ -134,6 +134,7 @@ export interface MeetingBotConfiguration {
   providerStatusCode?: string;
   lastStatusAt?: Date;
   lastCorrectionCheckAt?: Date;
+  processedWebhookIds?: string[];
   lastError?: string;
 }
 

@@ -19,6 +19,31 @@ function tokens(value: string): string[] {
     .filter((token) => token.length > 1 && !STOP_WORDS.has(token));
 }
 
+function normalizedWakePhrase(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+}
+
+export function isMeetingWakePhrase(spokenText: string, wakeWord: string): boolean {
+  const spoken = normalizedWakePhrase(spokenText);
+  const trigger = normalizedWakePhrase(wakeWord);
+  if (!spoken || !trigger) return false;
+  if (spoken === trigger) return true;
+
+  // Teams captions sometimes split the product name into separate words.
+  return trigger === "conclavia" && [
+    "conclavia",
+    "conlavia",
+    "conclava",
+    "assistente",
+    "collegadigitale",
+  ].includes(spoken);
+}
+
 export function parseMeetingVoiceCommand(
   spokenText: string,
   wakeWord: string,
@@ -26,8 +51,21 @@ export function parseMeetingVoiceCommand(
   const trigger = wakeWord.trim();
   if (!spokenText.trim() || !trigger) return undefined;
   const escapedTrigger = trigger.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const triggerMatch = new RegExp(`\\b${escapedTrigger}\\b`, "iu").exec(spokenText);
-  if (!triggerMatch || triggerMatch.index === undefined) return undefined;
+  const triggerPattern = normalizedWakePhrase(trigger) === "conclavia"
+    ? `(?:${escapedTrigger}|con\\s+clavia|con\\s+la\\s+via|con\\s+lavia|assistente|collega\\s+digitale)`
+    : escapedTrigger;
+  const triggerMatch = new RegExp(`\\b${triggerPattern}\\b`, "iu").exec(spokenText);
+  if (!triggerMatch || triggerMatch.index === undefined) {
+    const directAudioCheck = /^\s*(?:ciao|salve|hello|hi)\b.*\b(?:mi\s+senti|can\s+you\s+hear\s+me)\b/iu
+      .test(spokenText);
+    if (!directAudioCheck) return undefined;
+    return {
+      kind: "ask",
+      prompt: /\bcan\s+you\s+hear\s+me\b/iu.test(spokenText)
+        ? "Can you hear me?"
+        : "Mi senti?",
+    };
+  }
   const request = spokenText
     .slice(triggerMatch.index + triggerMatch[0].length)
     .replace(/^[\s,.:;!?–—-]+/u, "")

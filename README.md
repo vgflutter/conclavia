@@ -55,7 +55,7 @@ The assistant personality has two deliberately simple controls: response length 
 Microsoft Teams meeting
         │
         ▼
-Recall.ai signed-in participant + live transcript
+Attendee anonymous participant + native Teams captions
         │
         ▼
 Conclavia meeting output page
@@ -68,11 +68,12 @@ Conclavia meeting output page
 Avatar video and spoken response returned to Teams
 ```
 
-Recall Output Media loads the protected `/meeting-room/[token]` page as the participant camera. That page consumes Recall's in-meeting transcript WebSocket, forwards finalized utterances to the matching meeting, and plays newly generated speech into the meeting. No virtual microphone, virtual camera, browser extension, or client-side Teams plugin is required.
+Attendee loads the protected `/meeting-room/[token]` page inside an isolated meeting container and streams that page as the participant camera and audio. Bot-level webhooks deliver state changes, participants, and native Teams captions to Conclavia; the page then speaks new answers back into the meeting. No virtual microphone, virtual camera, browser extension, client-side Teams plugin, or manually operated Mac is required.
 
 ## Cost controls
 
 - Speech is generated on the meeting device with Supertonic 3. There is no per-character voice API charge.
+- Teams captions are used for live transcription, so no separate speech-to-text provider is required.
 - ChatGPT-backed intelligence is opt-in through `MEETING_AI_ENABLED=true`. Remembering facts and the deterministic memory fallback work without it.
 - The default model is `gpt-5.4-mini`; it can be changed with `OPENAI_MEETING_MODEL`.
 - Audio is not stored. The live transcript and selected memory are stored in MongoDB.
@@ -85,7 +86,8 @@ The Supertonic model is downloaded on first voice use and cached by the browser.
 - Node.js 22 recommended; Node.js 20.9 or newer is supported.
 - MongoDB.
 - Google Chrome for the Playwright browser suite.
-- For authenticated automatic entry: a Recall.ai workspace and a dedicated Microsoft 365 Business tenant for the bot, separate from the existing company tenant.
+- For automatic entry as an anonymous guest: an Attendee workspace and a public HTTPS deployment. No Teams account is required.
+- The current integration targets meetings that allow anonymous guests. Signed-in Teams identities are not part of this release.
 - For generated answers and semantic verification: an OpenAI API project.
 
 ## Local setup
@@ -106,29 +108,29 @@ Set `MONGODB_URI`, then open [http://localhost:3000/meetings](http://localhost:3
 | `MEETING_AI_ENABLED` | No | Set to `true` to use OpenAI for summaries, answers, and verification. |
 | `OPENAI_API_KEY` | With meeting AI | Server-side OpenAI API credential. |
 | `OPENAI_MEETING_MODEL` | No | Responses API model; defaults to `gpt-5.4-mini`. |
-| `MEETING_BOT_PROVIDER` | No | Keep `preview` locally; set `recall` for automatic Teams entry. |
-| `CONCLAVIA_PUBLIC_URL` | With Recall | Stable public HTTPS origin serving this application. |
-| `RECALL_API_BASE_URL` | No | Regional Recall API origin; defaults to `eu-central-1`. |
-| `RECALL_API_KEY` | With Recall | Server-side Recall API credential. |
-| `RECALL_WEBHOOK_SECRET` | With Recall | Recall verification secret beginning with `whsec_`. |
-| `TEAMS_GUEST_ACCOUNT_EMAIL` | With Recall | Dedicated Microsoft identity used by the participant. |
+| `MEETING_BOT_PROVIDER` | No | Keep `preview` locally; set `attendee` for automatic Teams entry. |
+| `CONCLAVIA_PUBLIC_URL` | With Attendee | Stable public HTTPS origin serving this application. |
+| `ATTENDEE_API_BASE_URL` | No | Attendee API origin; defaults to `https://app.attendee.dev/api/v1`. |
+| `ATTENDEE_API_KEY` | With Attendee | Server-side Attendee API credential. |
+| `ATTENDEE_WEBHOOK_SECRET` | Recommended | Base64 webhook signing secret from Attendee Settings. A private per-meeting callback token is used when it is absent. |
+| `TEAMS_ACCESS_MODE` | No | Use `anonymous_guest` for the supported unattended flow. |
+| `TEAMS_GUEST_ACCOUNT_EMAIL` | Legacy signed-in mode | Dedicated Microsoft identity used by older provider deployments. |
 | `TEAMS_GUEST_DISPLAY_NAME` | No | Requested participant name when the provider permits it. |
-| `TEAMS_SIGNED_IN_CONFIRMED` | With Recall | Set to `true` only after the Microsoft identity is configured in Recall. |
+| `TEAMS_SIGNED_IN_CONFIRMED` | Legacy signed-in mode | Retained for older provider deployments. |
 
 Never commit real credentials. Inject them through the deployment platform's secret store.
 
 ## Microsoft Teams setup
 
-1. Create a dedicated Microsoft 365 Business tenant for Conclavia. Do not reuse a personal account or add the bot to the existing company tenant: Recall's authenticated setup requires organization-level security changes.
-2. Create the bot user inside that tenant, assign its Teams license, and set the name and profile picture that should appear in meetings.
-3. Add the bot user's sign-in credentials in Recall's Microsoft Teams setup. Keep those credentials in Recall; Conclavia only needs the matching email for scheduling and overlap protection.
-4. Apply Recall's documented security configuration only to the dedicated tenant. Interactive MFA or biometric approval cannot be completed by an unattended bot.
-5. When the bot joins another organization, have that organization trust the bot domain or add the identity as an external colleague or guest, and include its email in the meeting invitation when appropriate.
-6. Configure the Recall status webhook as `https://YOUR_ORIGIN/api/webhooks/recall` and copy its verification secret.
-7. Set all Recall and Teams variables listed above, then change `MEETING_BOT_PROVIDER` to `recall` and `TEAMS_SIGNED_IN_CONFIRMED` to `true`.
-8. Create a future meeting with automatic entry enabled. Conclavia schedules one participant per appointment and prevents overlapping meetings for the same account.
+For the first test, use a Personal Teams meeting created from Hotmail and keep `TEAMS_ACCESS_MODE=anonymous_guest`. The participant joins with the Conclavia display name and must be admitted if the meeting uses a lobby.
 
-A signed-in participant may still wait in the lobby, depending on the organizer's Teams policy. The meeting page shows that state so a participant can admit it. Recall signed-in bots support Microsoft Teams Business meetings; test the exact meeting type used by the organization before rollout.
+1. Create an Attendee API key and store it as `ATTENDEE_API_KEY`.
+2. Deploy Conclavia at a stable public HTTPS origin and set that origin as `CONCLAVIA_PUBLIC_URL`.
+3. Set `MEETING_BOT_PROVIDER=attendee` and `TEAMS_ACCESS_MODE=anonymous_guest`.
+4. Recommended before production: copy the signing secret from Attendee **Settings → Webhooks** into `ATTENDEE_WEBHOOK_SECRET`. Conclavia creates the bot-level webhook automatically for each meeting; no project webhook needs to be created manually.
+5. Create a meeting with **Entra ora** or schedule a future appointment. Admit **Conclavia** from the Teams lobby when prompted.
+
+The organizer's Teams policy must allow anonymous guests and captions. If company policy blocks either feature, the meeting detail page reports the failed entry or missing transcription instead of silently pretending the assistant is active.
 
 ## Verification
 
@@ -136,13 +138,13 @@ A signed-in participant may still wait in the lobby, depending on the organizer'
 npm run verify
 ```
 
-This runs ESLint, TypeScript, a production build, and six Playwright scenarios covering:
+This runs ESLint, TypeScript, a production build, and seven Playwright scenarios covering:
 
 - single-meeting creation, agenda, commands, memory, and cleanup;
 - series creation and continuity across two appointments;
 - avatar navigation, facial mood, and hand raise;
 - Italian and English wake-phrase command parsing;
-- Recall live-transcript payload parsing;
+- Recall legacy transcript parsing and Attendee signed-webhook parsing;
 - database health and protected meeting-output behavior.
 
 Tests run on an isolated local port with meeting AI and the external participant disabled. They create uniquely named records and remove them even after a failed scenario, so verification never creates paid external usage.
@@ -178,7 +180,7 @@ This release is designed as a private, single-workspace application and does not
 - Next.js 16.3, React 19, and TypeScript.
 - Tailwind CSS 4.
 - MongoDB with Mongoose.
-- Recall.ai Output Media and signed-in Microsoft Teams bots.
+- Attendee meeting bots, voice-agent output, and native Teams captions.
 - OpenAI Responses API for optional meeting intelligence.
 - Supertonic 3 and ONNX Runtime Web for local speech.
 - Playwright for end-to-end verification.
