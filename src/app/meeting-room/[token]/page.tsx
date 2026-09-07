@@ -29,7 +29,7 @@ export default async function MeetingRoomPage({
       initialStatus={meeting.status}
       initialCommandId={meeting.commandHistory.at(-1)?.id}
       initialInterventionId={meeting.pendingIntervention?.id}
-      displayName={profile.displayName}
+      displayName={meeting.assistant.wakeWord || profile.displayName}
       role={profile.role}
       locale={locale}
       speechLanguage={meeting.language === "en" ? "en" : "it"}
