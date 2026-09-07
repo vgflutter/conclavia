@@ -8,6 +8,7 @@ import {
 } from "../../src/lib/attendee-webhook";
 import {
   detectElementaryArithmetic,
+  isMeetingWakePhrase,
   meetingPermissionDecision,
   parseMeetingVoiceCommand,
 } from "../../src/lib/meeting-command";
@@ -385,6 +386,10 @@ test("comandi vocali: riconosce italiano e inglese dopo la parola di attivazione
     .toEqual({ kind: "summary", prompt: "" });
   expect(parseMeetingVoiceCommand("Conclavia, what did we decide?", "Conclavia"))
     .toEqual({ kind: "ask", prompt: "what did we decide?" });
+  expect(parseMeetingVoiceCommand("Ricardo, can you hear me?", "Riccardo"))
+    .toEqual({ kind: "ask", prompt: "can you hear me?" });
+  expect(isMeetingWakePhrase("Ricardo", "Riccardo")).toBe(true);
+  expect(meetingPermissionDecision("Ricardo, go ahead", "Riccardo")).toBe("grant");
   expect(parseMeetingVoiceCommand("Assistente, quanto fa tre per tre?", "Conclavia"))
     .toEqual({ kind: "ask", prompt: "quanto fa tre per tre?" });
   expect(parseMeetingVoiceCommand("Ciao, mi senti?", "Conclavia"))

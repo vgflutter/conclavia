@@ -68,7 +68,7 @@ function transcriptContext(meeting: ReturnType<typeof serializeMeeting>): string
 }
 
 function isPresenceCheck(prompt: string): boolean {
-  return /^(?:ciao[,!\s]*)?(?:mi senti|ci sei|can you hear me|are you there)[?!.\s]*$/iu
+  return /^(?:ciao[,!\s]*)?(?:mi senti|(?:riesci|riesce)\s+a\s+sentirmi|ci sei|can you hear me|are you there)[?!.\s]*$/iu
     .test(prompt.trim());
 }
 

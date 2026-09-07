@@ -37,6 +37,30 @@ function normalizedSpeech(value: string): string {
     .trim();
 }
 
+function escapeRegularExpression(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function captionWakePattern(value: string): string {
+  return normalizedSpeech(value)
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => {
+      let pattern = "";
+      for (let index = 0; index < word.length; index += 1) {
+        const character = escapeRegularExpression(word[index]);
+        if (word[index + 1] === word[index]) {
+          pattern += `${character}+`;
+          while (word[index + 1] === word[index]) index += 1;
+        } else {
+          pattern += character;
+        }
+      }
+      return pattern;
+    })
+    .join("\\s+");
+}
+
 const SMALL_NUMBERS: Record<string, number> = {
   zero: 0, uno: 1, one: 1, due: 2, two: 2, tre: 3, three: 3,
   quattro: 4, four: 4, cinque: 5, five: 5, sei: 6, six: 6,
@@ -74,9 +98,8 @@ export function meetingPermissionDecision(
   text: string,
   wakeWord: string,
 ): "grant" | "decline" | undefined {
-  const spoken = ` ${normalizedSpeech(text)} `;
-  const trigger = ` ${normalizedSpeech(wakeWord)} `;
-  if (!trigger.trim() || !spoken.includes(trigger)) return undefined;
+  const trigger = captionWakePattern(wakeWord);
+  if (!trigger || !new RegExp(`\\b(?:${trigger})\\b`, "iu").test(text)) return undefined;
   if (/\b(?:vai pure|prego|puoi parlare|puoi intervenire|intervieni|dimmi pure|go ahead|you can speak|please speak)\b/iu.test(text)) {
     return "grant";
   }
@@ -90,7 +113,10 @@ export function isMeetingWakePhrase(spokenText: string, wakeWord: string): boole
   const spoken = normalizedWakePhrase(spokenText);
   const trigger = normalizedWakePhrase(wakeWord);
   if (!spoken || !trigger) return false;
-  if (spoken === trigger) return true;
+  const triggerPattern = captionWakePattern(wakeWord);
+  if (triggerPattern && new RegExp(`^(?:${triggerPattern})$`, "iu").test(normalizedSpeech(spokenText))) {
+    return true;
+  }
 
   // Teams captions sometimes split the product name into separate words.
   return trigger === "conclavia" && [
@@ -108,10 +134,7 @@ export function parseMeetingVoiceCommand(
 ): { kind: MeetingCommandKind; prompt: string } | undefined {
   const trigger = wakeWord.trim();
   if (!spokenText.trim() || !trigger) return undefined;
-  const escapedTrigger = trigger
-    .split(/\s+/)
-    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("\\s+");
+  const escapedTrigger = captionWakePattern(trigger);
   const triggerPattern = normalizedWakePhrase(trigger) === "conclavia"
     ? `(?:${escapedTrigger}|con\\s+clavia|con\\s+la\\s+via|con\\s+lavia|assistente|collega\\s+digitale)`
     : escapedTrigger;
