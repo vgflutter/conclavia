@@ -26,7 +26,6 @@ export default async function MeetingRoomPage({
   return (
     <MeetingOutputSurface
       outputToken={token}
-      title={meeting.title}
       initialStatus={meeting.status}
       initialCommandId={meeting.commandHistory.at(-1)?.id}
       initialInterventionId={meeting.pendingIntervention?.id}

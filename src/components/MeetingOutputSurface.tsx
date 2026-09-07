@@ -46,7 +46,6 @@ function performanceFor(kind: MeetingCommandKind): {
 
 export function MeetingOutputSurface({
   outputToken,
-  title,
   initialStatus,
   initialCommandId,
   initialInterventionId,
@@ -60,7 +59,6 @@ export function MeetingOutputSurface({
   meetingProvider,
 }: {
   outputToken: string;
-  title: string;
   initialStatus: MeetingStatus;
   initialCommandId?: string;
   initialInterventionId?: string;
@@ -313,8 +311,8 @@ export function MeetingOutputSurface({
         : "WAITING"
       : status === "live"
         ? isItalian
-          ? "IN RIUNIONE"
-          : "IN MEETING"
+          ? "OPERATIVO"
+          : "ACTIVE"
         : isItalian
           ? "PRONTO"
           : "READY";
@@ -323,12 +321,9 @@ export function MeetingOutputSurface({
     <div className={styles.output} style={stageStyle} data-live={isPresent} data-speaking={speaking}>
       <div className={styles.grid} />
       <div className={styles.glow} />
-      <header className={styles.topbar}>
-        <span>CONCLAVIA · {isItalian ? "COLLEGA DIGITALE" : "DIGITAL COLLEAGUE"}</span>
-        <span className={styles.liveBadge}>
-          <i /> {statusLabel}
-        </span>
-      </header>
+      <div className={styles.statusBadge}>
+        <i /> {statusLabel}
+      </div>
       <div className={styles.avatarWrap}>
         <BusinessAvatar
           viseme={viseme}
@@ -341,7 +336,6 @@ export function MeetingOutputSurface({
       <div className={styles.lowerThird}>
         <span>{displayName}</span>
         <strong>{role}</strong>
-        <small>{title}</small>
       </div>
       {!inMeeting && (
         <div className={styles.mockNotice}>
