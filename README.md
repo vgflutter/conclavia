@@ -18,6 +18,12 @@ The management interface works without a meeting provider. Automatic Teams entry
 
 ## Product tour
 
+### Meetings at a glance
+
+The dashboard keeps active work, upcoming appointments, series, and history separate. Search and focused views keep the page useful as the number of meetings grows.
+
+![Conclavia meetings dashboard](docs/images/meetings.png)
+
 ### Avatar and voice test
 
 The avatar can be tested independently from a meeting, including Italian and English voice, facial mood, audio-driven lip sync, and hand raise.
@@ -35,6 +41,12 @@ Every meeting has an objective, a Teams link, a date, and an agenda whose items 
 Completed appointments contribute their summary, remembered facts, decisions, open actions, and questions to the next appointment in the same series.
 
 ![Conclavia meeting series and shared memory](docs/images/meeting-series.png)
+
+### Summary-first history
+
+Memory is organized around concise meeting summaries. Facts, decisions, actions, questions, and the full transcript stay collapsed until someone needs the detail.
+
+![Conclavia meeting memory](docs/images/memory.png)
 
 ## Meeting behavior
 
@@ -144,10 +156,12 @@ The organizer's Teams policy must allow anonymous guests and captions. If compan
 npm run verify
 ```
 
-This runs ESLint, TypeScript, a production build, and eight Playwright scenarios covering:
+This runs ESLint, TypeScript, a production build, and ten Playwright scenarios covering:
 
 - single-meeting creation, agenda, commands, memory, and cleanup;
 - series creation and continuity across two appointments;
+- dashboard filtering, search, and large activity queues;
+- mobile navigation and horizontal-overflow checks on primary routes;
 - avatar navigation, facial mood, and hand raise;
 - dynamic Italian and English wake-phrase command parsing;
 - deterministic correction detection and explicit permission to speak;

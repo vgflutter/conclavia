@@ -39,6 +39,16 @@ function statusClass(status: MeetingResponse["status"]): string {
   return "bg-slate-100 text-slate-700";
 }
 
+function quantityLabel(
+  locale: Locale,
+  count: number,
+  italian: [string, string],
+  english: [string, string],
+): string {
+  const labels = locale === "it" ? italian : english;
+  return `${count} ${count === 1 ? labels[0] : labels[1]}`;
+}
+
 function MemoryList({ title, items }: { title: string; items: string[] }) {
   return (
     <div>
@@ -195,6 +205,12 @@ export default async function MeetingPage({ params }: MeetingPageProps) {
         ? "segment"
         : "segments"
   }`;
+  const memoryItemCount =
+    meeting.summary.rememberedFacts.length +
+    meeting.summary.decisions.length +
+    meeting.summary.actionItems.length +
+    meeting.summary.openQuestions.length;
+  const hasSavedSummary = Boolean(meeting.summary.generatedAt || meeting.summary.overview);
 
   return (
     <div className="container-page py-10 sm:py-14">
@@ -291,7 +307,9 @@ export default async function MeetingPage({ params }: MeetingPageProps) {
       </header>
 
       <div className="space-y-6">
-        <ContinuityCard briefing={briefing} locale={locale} />
+        {(meeting.seriesId || briefing.previousMeetingIds.length > 0) && (
+          <ContinuityCard briefing={briefing} locale={locale} />
+        )}
 
         <MeetingAgendaManager meetingId={meeting.id} initialAgenda={meeting.agenda} />
 
@@ -341,96 +359,58 @@ export default async function MeetingPage({ params }: MeetingPageProps) {
           </div>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-500">
             {isItalian
-                ? "Queste informazioni resteranno disponibili nei prossimi appuntamenti della stessa serie e potrai modificarle in qualsiasi momento."
-                : "This information will remain available in future appointments in the same series, and you can edit it at any time."}
+                ? "Il riepilogo è lo storico principale del meeting e resta disponibile negli appuntamenti collegati."
+                : "The summary is the meeting’s primary record and remains available to connected appointments."}
           </p>
-          <div className="mt-6 border-t border-slate-100 pt-6">
-            <MeetingOutcomeForm meeting={meeting} />
-          </div>
+          {hasSavedSummary && (
+            <div className="mt-6 rounded-xl bg-[#f4f7f4] p-4 sm:p-5">
+              <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                {meeting.summary.overview}
+              </p>
+              {memoryItemCount > 0 && (
+                <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold text-slate-600">
+                  <span className="rounded-full bg-white px-2.5 py-1">{quantityLabel(locale, meeting.summary.rememberedFacts.length, ["ricordo", "ricordi"], ["memory", "memories"])}</span>
+                  <span className="rounded-full bg-white px-2.5 py-1">{quantityLabel(locale, meeting.summary.decisions.length, ["decisione", "decisioni"], ["decision", "decisions"])}</span>
+                  <span className="rounded-full bg-white px-2.5 py-1">{quantityLabel(locale, meeting.summary.actionItems.length, ["attività", "attività"], ["action", "actions"])}</span>
+                  <span className="rounded-full bg-white px-2.5 py-1">{quantityLabel(locale, meeting.summary.openQuestions.length, ["domanda aperta", "domande aperte"], ["open question", "open questions"])}</span>
+                </div>
+              )}
+            </div>
+          )}
+          <details className="group mt-6 border-t border-slate-100 pt-5">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-lg py-2 text-sm font-semibold text-[#295c43]">
+              <span>{hasSavedSummary ? (isItalian ? "Modifica il riepilogo" : "Edit summary") : (isItalian ? "Completa il riepilogo" : "Complete summary")}</span>
+              <span aria-hidden="true" className="text-base transition-transform group-open:rotate-180">⌄</span>
+            </summary>
+            <div className="mt-4">
+              <MeetingOutcomeForm meeting={meeting} />
+            </div>
+          </details>
         </section>
 
-        <div className={`grid gap-6 ${meetingInProgress ? "lg:grid-cols-2" : ""}`}>
-          {meetingInProgress && (
-            <section className="card p-5 sm:p-7">
-              <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#295c43]">
-                {isItalian ? "Durante il meeting" : "During the meeting"}
-              </p>
-              <h2 className="mt-2 text-xl font-semibold">
-                {meeting.transcript.length
-                  ? isItalian
-                    ? `Trascrizione in diretta · ${transcriptCount}`
-                    : `Live transcript · ${transcriptCount}`
-                  : isItalian
-                    ? "In attesa del primo intervento"
-                    : "Waiting for the first contribution"}
-              </h2>
-              {meeting.transcript.length ? (
-                <div className="mt-5">
-                  <TranscriptEntries transcript={meeting.transcript} />
+        {meetingInProgress && (
+          meeting.transcript.length ? (
+            <details className="card group overflow-hidden">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-5 p-5 sm:p-6">
+                <div>
+                  <p className="section-kicker">{isItalian ? "Durante il meeting" : "During the meeting"}</p>
+                  <h2 className="mt-2 text-lg font-semibold">
+                    {isItalian ? `Trascrizione in diretta · ${transcriptCount}` : `Live transcript · ${transcriptCount}`}
+                  </h2>
                 </div>
-              ) : (
-                <p className="mt-3 text-sm leading-6 text-slate-500">
-                  {isItalian
-                    ? "La trascrizione comparirà qui durante il meeting."
-                    : "The transcript will appear here during the meeting."}
-                </p>
-              )}
-            </section>
-          )}
-
-          <section className="card p-5 sm:p-7">
-            <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#295c43]">
-              {isItalian ? "Modalità assistente" : "Assistant behavior"}
-            </p>
-            <h2 className="mt-2 text-xl font-semibold">
-              {isItalian ? "Comandi semplici, interventi misurati" : "Simple commands, measured interventions"}
-            </h2>
-            <dl className="mt-5 divide-y divide-slate-100 text-sm">
-              <div className="flex items-center justify-between gap-4 py-3 first:pt-0">
-                <dt className="text-slate-500">{isItalian ? "Per chiamarlo" : "Call phrase"}</dt>
-                <dd className="font-semibold">{meeting.assistant.wakeWord}</dd>
+                <span aria-hidden="true" className="text-lg text-slate-400 transition-transform group-open:rotate-180">⌄</span>
+              </summary>
+              <div className="border-t border-slate-100 p-5 sm:p-6">
+                <TranscriptEntries transcript={meeting.transcript} />
               </div>
-              <div className="flex items-center justify-between gap-4 py-3">
-                <dt className="text-slate-500">{isItalian ? "Voce" : "Voice"}</dt>
-                <dd className="text-right font-semibold">
-                  {isItalian ? "Naturale e bilingue" : "Natural and bilingual"}
-                </dd>
-              </div>
-              <div className="flex items-start justify-between gap-4 py-3">
-                <dt className="text-slate-500">{isItalian ? "Domande" : "Questions"}</dt>
-                <dd className="max-w-sm text-right font-semibold">
-                  {isItalian
-                    ? `Pronuncia “${meeting.assistant.wakeWord}” e fai la domanda.`
-                    : `Say “${meeting.assistant.wakeWord}” and ask the question.`}
-                </dd>
-              </div>
-              <div className="flex items-start justify-between gap-4 py-3">
-                <dt className="text-slate-500">{isItalian ? "Interventi spontanei" : "Proactive contributions"}</dt>
-                <dd className="max-w-sm text-right font-semibold">
-                  {meeting.assistant.correctionPolicy === "important_only"
-                    ? isItalian
-                      ? `Alza la mano e attende “${meeting.assistant.wakeWord}, vai pure”.`
-                      : `Raises its hand and waits for “${meeting.assistant.wakeWord}, go ahead”.`
-                    : isItalian ? "Non attivi" : "Not enabled"}
-                </dd>
-              </div>
-              <div className="flex items-center justify-between gap-4 py-3">
-                <dt className="text-slate-500">{isItalian ? "Correzioni" : "Corrections"}</dt>
-                <dd className="text-right font-semibold">
-                  {meeting.assistant.correctionPolicy === "important_only"
-                    ? isItalian ? "Solo inesattezze importanti" : "Important inaccuracies only"
-                    : meeting.assistant.correctionPolicy === "on_request"
-                      ? isItalian ? "Solo su richiesta" : "On request only"
-                      : isItalian ? "Disattive" : "Disabled"}
-                </dd>
-              </div>
-              <div className="flex items-center justify-between gap-4 py-3 last:pb-0">
-                <dt className="text-slate-500">{isItalian ? "Registrazione audio" : "Audio recording"}</dt>
-                <dd className="font-semibold">{meeting.retention.storeAudio ? (isItalian ? "Attiva" : "Enabled") : (isItalian ? "Disattiva" : "Disabled")}</dd>
-              </div>
-            </dl>
-          </section>
-        </div>
+            </details>
+          ) : (
+            <div className="card flex items-center gap-3 p-4 text-sm text-slate-500">
+              <span className="size-2 animate-pulse rounded-full bg-emerald-500" aria-hidden="true" />
+              {isItalian ? "In ascolto: la trascrizione apparirà dopo il primo intervento." : "Listening: the transcript will appear after the first contribution."}
+            </div>
+          )
+        )}
 
         {!meetingInProgress && meeting.transcript.length > 0 && (
           <details className="card group overflow-hidden">

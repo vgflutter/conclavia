@@ -15,8 +15,14 @@ export function Header() {
     return null;
   }
 
+  const navigation = [
+    { href: "/meetings", it: "Meeting", en: "Meetings" },
+    { href: "/memory", it: "Memoria", en: "Memory" },
+    { href: "/avatar", it: "Avatar", en: "Avatar" },
+  ];
+
   return (
-    <header className="border-b border-[#dfe4dc] bg-white/90 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b border-[#dfe4dc] bg-white/92 backdrop-blur">
       <div className="container-page flex min-h-16 items-center justify-between gap-3 py-2">
         <Link href="/meetings" aria-label="Conclavia" className="shrink-0">
           <Image
@@ -32,27 +38,19 @@ export function Header() {
           aria-label={locale === "it" ? "Navigazione principale" : "Primary navigation"}
           className="flex items-center gap-1.5 sm:gap-2"
         >
-          <Link
-            href="/meetings"
-            aria-current={pathname.startsWith("/meetings") ? "page" : undefined}
-            className="hidden rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 md:inline-flex"
-          >
-            {locale === "it" ? "Meeting" : "Meetings"}
-          </Link>
-          <Link
-            href="/memory"
-            aria-current={pathname.startsWith("/memory") ? "page" : undefined}
-            className="hidden rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 md:inline-flex"
-          >
-            {locale === "it" ? "Memoria" : "Memory"}
-          </Link>
-          <Link
-            href="/avatar"
-            aria-current={pathname.startsWith("/avatar") ? "page" : undefined}
-            className="hidden rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-950 md:inline-flex"
-          >
-            Avatar
-          </Link>
+          {navigation.map((item) => {
+            const active = pathname.startsWith(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={`hidden rounded-lg px-3 py-2 text-sm font-semibold transition md:inline-flex ${active ? "bg-[#edf4ef] text-[#295c43]" : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"}`}
+              >
+                {locale === "it" ? item.it : item.en}
+              </Link>
+            );
+          })}
           <label className="sr-only" htmlFor="interface-language">
             {locale === "it" ? "Lingua dell’interfaccia" : "Interface language"}
           </label>
@@ -74,11 +72,7 @@ export function Header() {
         aria-label={locale === "it" ? "Navigazione mobile" : "Mobile navigation"}
         className="container-page grid grid-cols-3 border-t border-[#edf0eb] py-1.5 md:hidden"
       >
-        {[
-          { href: "/meetings", it: "Meeting", en: "Meetings" },
-          { href: "/memory", it: "Memoria", en: "Memory" },
-          { href: "/avatar", it: "Avatar", en: "Avatar" },
-        ].map((item) => {
+        {navigation.map((item) => {
           const active = pathname.startsWith(item.href);
           return (
             <Link

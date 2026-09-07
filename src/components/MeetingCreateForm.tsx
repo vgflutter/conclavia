@@ -525,14 +525,20 @@ export function MeetingCreateForm({
         </div>
       )}
 
-      <section className="card p-5 sm:p-7">
-        <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#295c43]">
-          {isItalian ? "Comportamento" : "Behavior"}
-        </p>
-        <h2 className="mt-2 text-xl font-semibold">
-          {isItalian ? "Quando deve intervenire" : "When it should intervene"}
-        </h2>
-        <div className="mt-6 grid gap-5 sm:grid-cols-2">
+      <details className="card group overflow-hidden">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 hover:bg-[#fafcf9] sm:p-6">
+          <div>
+            <p className="section-kicker">{isItalian ? "Preferenze" : "Preferences"}</p>
+            <h2 className="mt-2 text-lg font-semibold">
+              {isItalian ? "Lingua e interventi" : "Language and contributions"}
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {isItalian ? "Automatico IT/EN · interviene solo per inesattezze importanti" : "Automatic IT/EN · contributes only for important inaccuracies"}
+            </p>
+          </div>
+          <span aria-hidden="true" className="text-lg text-slate-400 transition-transform group-open:rotate-180">⌄</span>
+        </summary>
+        <div className="grid gap-5 border-t border-slate-100 p-5 sm:grid-cols-2 sm:p-6">
           <div>
             <label className="label" htmlFor="meeting-language">
               {isItalian ? "Lingua" : "Language"}
@@ -596,14 +602,6 @@ export function MeetingCreateForm({
               </span>
             </label>
           ) : null}
-          <div className="rounded-xl bg-[#f3f7f4] p-4 sm:col-span-2">
-            <p className="text-sm font-semibold text-[#204d36]">{isItalian ? "Comandi sempre attivi" : "Commands always enabled"}</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              {isItalian
-                ? `Pronuncia “${assistantName}” e chiedi di ricordare, riepilogare, rispondere o indicare il prossimo punto.`
-                : `Say “${assistantName}” and ask it to remember, summarize, answer or identify the next item.`}
-            </p>
-          </div>
           {correctionPolicy === "important_only" && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 sm:col-span-2">
               <p className="text-sm font-semibold text-amber-950">
@@ -617,60 +615,7 @@ export function MeetingCreateForm({
             </div>
           )}
         </div>
-      </section>
-
-      <section className="card p-5 sm:p-6">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <div>
-            <span className="flex size-8 items-center justify-center rounded-full bg-[#e4eee7] text-sm font-bold text-[#295c43]">1</span>
-            <p className="mt-3 text-sm font-semibold">{isItalian ? "Entra dal link" : "Joins from the link"}</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              {isItalian ? "Usa il collegamento salvato e compare tra i partecipanti." : "It uses the saved link and appears among the participants."}
-            </p>
-          </div>
-          <div>
-            <span className="flex size-8 items-center justify-center rounded-full bg-[#e4eee7] text-sm font-bold text-[#295c43]">2</span>
-            <p className="mt-3 text-sm font-semibold">{isItalian ? "Risponde quando lo chiami" : "Answers when called"}</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              {isItalian ? `Pronuncia “${assistantName}” e fai una domanda: risponde usando il contesto disponibile.` : `Say “${assistantName}” and ask a question: it answers from the available context.`}
-            </p>
-          </div>
-          <div>
-            <span className="flex size-8 items-center justify-center rounded-full bg-[#e4eee7] text-sm font-bold text-[#295c43]">3</span>
-            <p className="mt-3 text-sm font-semibold">{isItalian ? "Segue la scaletta" : "Follows the agenda"}</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              {isItalian ? "Indica il prossimo punto e tiene distinti quelli obbligatori." : "It identifies the next item and tracks mandatory ones."}
-            </p>
-          </div>
-          <div>
-            <span className="flex size-8 items-center justify-center rounded-full bg-[#e4eee7] text-sm font-bold text-[#295c43]">4</span>
-            <p className="mt-3 text-sm font-semibold">{isItalian ? "Riepiloga e ricorda" : "Summarizes and remembers"}</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              {isItalian ? "Conserva decisioni, attività e domande per gli incontri successivi." : "It carries decisions, actions and questions into future meetings."}
-            </p>
-          </div>
-          <div>
-            <span className="flex size-8 items-center justify-center rounded-full bg-[#e4eee7] text-sm font-bold text-[#295c43]">5</span>
-            <p className="mt-3 text-sm font-semibold">{isItalian ? "Chiede la parola" : "Requests the floor"}</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              {isItalian ? "Alza la mano per informazioni rilevanti o correzioni e aspetta il permesso." : "It raises its hand for relevant information or corrections and waits for permission."}
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {automaticEntryReady && (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
-          <strong>{isItalian ? "Tutto pronto:" : "Everything is ready:"}</strong>{" "}
-          {isItalian
-            ? mode === "single" && timing === "now"
-              ? "salvando il meeting il collega digitale inizierà a entrare."
-              : "salvando il meeting programmerai anche il suo ingresso."
-            : mode === "single" && timing === "now"
-              ? "saving the meeting will start the digital colleague’s entry."
-              : "saving the meeting will also schedule its entry."}
-        </div>
-      )}
+      </details>
 
       {error && (
         <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-700">
@@ -678,7 +623,12 @@ export function MeetingCreateForm({
         </p>
       )}
 
-      <div className="flex justify-end">
+      <div className="flex flex-col gap-3 rounded-2xl border border-[#d9e4da] bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs leading-5 text-slate-500 sm:max-w-xl">
+          {isItalian
+            ? `Nel meeting puoi chiamarlo dicendo “${assistantName}” per fare domande, ricordare, riepilogare o seguire la scaletta.`
+            : `In the meeting, say “${assistantName}” to ask questions, remember, summarize or follow the agenda.`}
+        </p>
         <button type="submit" className="button-primary min-w-44" disabled={submitting}>
           {submitting
             ? isItalian

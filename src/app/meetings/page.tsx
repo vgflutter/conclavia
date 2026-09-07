@@ -37,6 +37,19 @@ const attentionStatuses: MeetingStatus[] = [
 
 type MeetingView = "attention" | "series" | "upcoming" | "history";
 
+function escapeSearch(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function meetingsHref(view?: MeetingView, page = 1, search = ""): string {
+  const query = new URLSearchParams();
+  if (view) query.set("view", view);
+  if (page > 1) query.set("page", String(page));
+  if (search) query.set("q", search);
+  const suffix = query.toString();
+  return suffix ? `/meetings?${suffix}` : "/meetings";
+}
+
 function firstSearchParam(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -78,7 +91,7 @@ function MeetingCard({ meeting, locale }: { meeting: MeetingResponse; locale: Lo
   return (
     <Link
       href={`/meetings/${meeting.id}`}
-      className="card group block p-5 transition hover:-translate-y-0.5 hover:border-[#b9cabe] hover:shadow-[0_16px_45px_rgba(34,61,45,0.08)] sm:p-6"
+      className="card group block min-w-0 p-5 transition hover:-translate-y-0.5 hover:border-[#b9cabe] hover:shadow-[0_16px_45px_rgba(34,61,45,0.08)] sm:p-6"
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
@@ -160,6 +173,7 @@ function CollectionHeading({
   view,
   expanded,
   hasMore,
+  search,
 }: {
   title: string;
   description?: string;
@@ -168,6 +182,7 @@ function CollectionHeading({
   view: MeetingView;
   expanded: boolean;
   hasMore: boolean;
+  search: string;
 }) {
   const isItalian = locale === "it";
 
@@ -182,11 +197,11 @@ function CollectionHeading({
           {total}
         </span>
         {expanded ? (
-          <Link href="/meetings" className="text-sm font-semibold text-[#295c43] hover:underline">
+          <Link href={meetingsHref(undefined, 1, search)} className="text-sm font-semibold text-[#295c43] hover:underline">
             {isItalian ? "Torna alla panoramica" : "Back to overview"}
           </Link>
         ) : hasMore ? (
-          <Link href={`/meetings?view=${view}`} className="text-sm font-semibold text-[#295c43] hover:underline">
+          <Link href={meetingsHref(view, 1, search)} className="text-sm font-semibold text-[#295c43] hover:underline">
             {isItalian ? "Vedi tutti" : "View all"}
           </Link>
         ) : null}
@@ -200,11 +215,13 @@ function Pagination({
   page,
   total,
   locale,
+  search,
 }: {
   view: MeetingView;
   page: number;
   total: number;
   locale: Locale;
+  search: string;
 }) {
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   if (pages <= 1) return null;
@@ -213,7 +230,7 @@ function Pagination({
   return (
     <nav aria-label={isItalian ? "Paginazione" : "Pagination"} className="mt-5 flex items-center justify-between gap-4">
       {page > 1 ? (
-        <Link href={`/meetings?view=${view}&page=${page - 1}`} className="button-secondary">
+        <Link href={meetingsHref(view, page - 1, search)} className="button-secondary">
           ← {isItalian ? "Precedenti" : "Previous"}
         </Link>
       ) : <span />}
@@ -221,7 +238,7 @@ function Pagination({
         {isItalian ? `Pagina ${page} di ${pages}` : `Page ${page} of ${pages}`}
       </span>
       {page < pages ? (
-        <Link href={`/meetings?view=${view}&page=${page + 1}`} className="button-secondary">
+        <Link href={meetingsHref(view, page + 1, search)} className="button-secondary">
           {isItalian ? "Successivi" : "Next"} →
         </Link>
       ) : <span />}
@@ -235,12 +252,14 @@ function AttentionSection({
   locale,
   expanded,
   page,
+  search,
 }: {
   meetings: MeetingResponse[];
   total: number;
   locale: Locale;
   expanded: boolean;
   page: number;
+  search: string;
 }) {
   const isItalian = locale === "it";
 
@@ -256,42 +275,49 @@ function AttentionSection({
         view="attention"
         expanded={expanded}
         hasMore={!expanded && total > DASHBOARD_ATTENTION_LIMIT}
+        search={search}
       />
-      <div className="card divide-y divide-slate-100 overflow-hidden">
-        {meetings.map((meeting) => (
-          <Link
-            key={meeting.id}
-            href={`/meetings/${meeting.id}`}
-            className="group grid gap-3 px-5 py-4 transition hover:bg-[#f7faf7] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-6"
-          >
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusClass(meeting.status)}`}>
-                  {meetingStatusLabel(locale, meeting.status)}
-                </span>
-                {meeting.seriesLabel && (
-                  <span className="truncate text-xs font-medium text-slate-400">
-                    {meeting.seriesLabel}
+      {meetings.length ? (
+        <div className="card divide-y divide-slate-100 overflow-hidden">
+          {meetings.map((meeting) => (
+            <Link
+              key={meeting.id}
+              href={`/meetings/${meeting.id}`}
+              className="group grid gap-3 px-5 py-4 transition hover:bg-[#f7faf7] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-6"
+            >
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusClass(meeting.status)}`}>
+                    {meetingStatusLabel(locale, meeting.status)}
                   </span>
-                )}
+                  {meeting.seriesLabel && (
+                    <span className="truncate text-xs font-medium text-slate-400">
+                      {meeting.seriesLabel}
+                    </span>
+                  )}
+                </div>
+                <h3 className="mt-2 truncate text-base font-semibold group-hover:text-[#295c43]">
+                  {meeting.title}
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  {formatMeetingDate(meeting.scheduledStart, locale, meeting.timezone)}
+                </p>
               </div>
-              <h3 className="mt-2 truncate text-base font-semibold group-hover:text-[#295c43]">
-                {meeting.title}
-              </h3>
-              <p className="mt-1 text-sm text-slate-500">
-                {formatMeetingDate(meeting.scheduledStart, locale, meeting.timezone)}
-              </p>
-            </div>
-            <div className="flex items-center justify-between gap-4 sm:justify-end">
-              <span className="text-sm font-medium text-amber-800">
-                {attentionReason(locale, meeting)}
-              </span>
-              <span className="text-lg text-slate-300 transition group-hover:translate-x-1 group-hover:text-[#295c43]">→</span>
-            </div>
-          </Link>
-        ))}
-      </div>
-      {expanded && <Pagination view="attention" page={page} total={total} locale={locale} />}
+              <div className="flex items-center justify-between gap-4 sm:justify-end">
+                <span className="text-sm font-medium text-amber-800">
+                  {attentionReason(locale, meeting)}
+                </span>
+                <span className="text-lg text-slate-300 transition group-hover:translate-x-1 group-hover:text-[#295c43]">→</span>
+              </div>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <div className="card border-dashed p-6 text-sm text-slate-500">
+          {isItalian ? "Nessun meeting richiede attenzione." : "No meetings need attention."}
+        </div>
+      )}
+      {expanded && <Pagination view="attention" page={page} total={total} locale={locale} search={search} />}
     </section>
   );
 }
@@ -306,6 +332,7 @@ function MeetingSection({
   view,
   expanded,
   page,
+  search,
 }: {
   title: string;
   description?: string;
@@ -316,6 +343,7 @@ function MeetingSection({
   view: Extract<MeetingView, "upcoming" | "history">;
   expanded: boolean;
   page: number;
+  search: string;
 }) {
   return (
     <section>
@@ -327,6 +355,7 @@ function MeetingSection({
         view={view}
         expanded={expanded}
         hasMore={!expanded && total > DASHBOARD_MEETING_LIMIT}
+        search={search}
       />
       {meetings.length ? (
         <>
@@ -335,7 +364,7 @@ function MeetingSection({
               <MeetingCard key={meeting.id} meeting={meeting} locale={locale} />
             ))}
           </div>
-          {expanded && <Pagination view={view} page={page} total={total} locale={locale} />}
+          {expanded && <Pagination view={view} page={page} total={total} locale={locale} search={search} />}
         </>
       ) : (
         <div className="card border-dashed p-6 text-sm leading-6 text-slate-500">{empty}</div>
@@ -427,12 +456,32 @@ export default async function MeetingsPage({
   searchParams: Promise<{
     view?: string | string[];
     page?: string | string[];
+    q?: string | string[];
   }>;
 }) {
   const [locale, query] = await Promise.all([getRequestLocale(), searchParams]);
   const isItalian = locale === "it";
   const view = selectedMeetingView(firstSearchParam(query.view));
   const page = selectedPage(firstSearchParam(query.page));
+  const search = (firstSearchParam(query.q) || "").trim().slice(0, 120);
+  const searchExpression = search ? escapeSearch(search) : "";
+  const meetingSearchFilter: FilterQuery<MeetingRecord> = searchExpression
+    ? {
+        $or: [
+          { title: { $regex: searchExpression, $options: "i" } },
+          { objective: { $regex: searchExpression, $options: "i" } },
+          { seriesLabel: { $regex: searchExpression, $options: "i" } },
+        ],
+      }
+    : {};
+  const seriesSearchFilter = searchExpression
+    ? {
+        $or: [
+          { title: { $regex: searchExpression, $options: "i" } },
+          { objective: { $regex: searchExpression, $options: "i" } },
+        ],
+      }
+    : {};
   const expandedOffset = (page - 1) * PAGE_SIZE;
   const standaloneFilter: FilterQuery<MeetingRecord> = {
     $or: [
@@ -441,13 +490,13 @@ export default async function MeetingsPage({
     ],
   };
   const attentionFilter: FilterQuery<MeetingRecord> = {
-    status: { $in: attentionStatuses },
+    $and: [{ status: { $in: attentionStatuses } }, meetingSearchFilter],
   };
   const upcomingFilter: FilterQuery<MeetingRecord> = {
-    $and: [standaloneFilter, { status: "scheduled" }],
+    $and: [standaloneFilter, { status: "scheduled" }, meetingSearchFilter],
   };
   const historyFilter: FilterQuery<MeetingRecord> = {
-    $and: [standaloneFilter, { status: { $in: ["completed", "cancelled"] } }],
+    $and: [standaloneFilter, { status: { $in: ["completed", "cancelled"] } }, meetingSearchFilter],
   };
 
   await connectToDatabase();
@@ -468,12 +517,12 @@ export default async function MeetingsPage({
       .limit(view === "attention" ? PAGE_SIZE : DASHBOARD_ATTENTION_LIMIT)
       .exec(),
     MeetingModel.countDocuments(attentionFilter).exec(),
-    MeetingSeriesModel.find()
+    MeetingSeriesModel.find(seriesSearchFilter)
       .sort({ updatedAt: -1 })
       .skip(view === "series" ? expandedOffset : 0)
       .limit(view === "series" ? PAGE_SIZE : DASHBOARD_SERIES_LIMIT)
       .exec(),
-    MeetingSeriesModel.countDocuments().exec(),
+    MeetingSeriesModel.countDocuments(seriesSearchFilter).exec(),
     MeetingModel.find(upcomingFilter)
       .sort({ scheduledStart: 1 })
       .skip(view === "upcoming" ? expandedOffset : 0)
@@ -486,7 +535,7 @@ export default async function MeetingsPage({
       .limit(view === "history" ? PAGE_SIZE : DASHBOARD_MEETING_LIMIT)
       .exec(),
     MeetingModel.countDocuments(historyFilter).exec(),
-    MeetingModel.countDocuments(standaloneFilter).exec(),
+    MeetingModel.countDocuments({ $and: [standaloneFilter, meetingSearchFilter] }).exec(),
   ]);
   const seriesIds = seriesDocuments.map((document) => document._id);
   const seriesMeetingDocuments = seriesIds.length
@@ -500,66 +549,80 @@ export default async function MeetingsPage({
   const seriesMeetings = seriesMeetingDocuments.map(serializeMeeting);
   const upcoming = upcomingDocuments.map(serializeMeeting);
   const history = historyDocuments.map(serializeMeeting);
-  const contextTotal = seriesTotal + standaloneTotal;
+  const visibleTotal = seriesTotal + standaloneTotal;
+  const searchResultTotal = view === "attention"
+    ? attentionTotal
+    : view === "series"
+      ? seriesTotal
+      : view === "upcoming"
+        ? upcomingTotal
+        : view === "history"
+          ? historyTotal
+          : visibleTotal;
 
   return (
-    <div className="container-page py-10 sm:py-14">
-      <header className="relative mb-10 overflow-hidden rounded-[2rem] bg-[#13251b] px-6 py-8 text-white shadow-[0_25px_80px_rgba(24,56,38,0.16)] sm:px-9 sm:py-10">
-        <div className="absolute -right-16 -top-24 size-72 rounded-full bg-[#8ccaa0]/15 blur-3xl" />
-        <div className="relative flex flex-col gap-7 md:flex-row md:items-end md:justify-between">
-          <div className="max-w-3xl">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#bde88d]">
-              {isItalian ? "Collega digitale" : "Digital colleague"}
-            </p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-[-0.035em] sm:text-5xl">
-              {isItalian ? "I tuoi meeting, con memoria." : "Your meetings, with memory."}
-            </h1>
-            <p className="mt-4 max-w-2xl text-sm leading-6 text-white/65 sm:text-base sm:leading-7">
-              {isItalian
-                ? "Programma dove deve entrare, conserva ciò che conta e prepara automaticamente il contesto per l’incontro successivo."
-                : "Schedule where it should join, retain what matters and prepare context for the next conversation."}
-            </p>
-          </div>
-          <Link href="/meetings/new" className="button-primary shrink-0 bg-[#bde88d]! text-[#13251b]! hover:bg-[#d2f2aa]!">
-            {isItalian ? "Aggiungi meeting" : "Add meeting"}
-          </Link>
+    <div className="container-page py-8 sm:py-12">
+      <header className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+        <div className="max-w-3xl">
+          <p className="section-kicker">{isItalian ? "Collega digitale" : "Digital colleague"}</p>
+          <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
+            {isItalian ? "Meeting" : "Meetings"}
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-slate-600 sm:text-base">
+            {isItalian
+              ? "Prepara gli incontri, segui quelli in corso e ritrova subito ciò che conta."
+              : "Prepare conversations, follow active meetings and quickly find what matters."}
+          </p>
         </div>
+        <Link href="/meetings/new" className="button-primary shrink-0">
+          <span aria-hidden="true" className="mr-1">＋</span>
+          {isItalian ? "Nuovo meeting" : "New meeting"}
+        </Link>
       </header>
 
-      <section className="mb-10 grid gap-3 sm:grid-cols-3">
-        <div className="card p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-            {isItalian ? "Funzioni" : "Functions"}
-          </p>
-          <p className="mt-2 text-sm font-semibold">
-            {isItalian ? "4 comandi essenziali" : "4 essential commands"}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">{isItalian ? "ricorda · riepiloga · rispondi · verifica" : "remember · summarize · answer · verify"}</p>
-        </div>
-        <div className="card p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-            {isItalian ? "Voce" : "Voice"}
-          </p>
-          <p className="mt-2 text-sm font-semibold">{isItalian ? "Naturale e bilingue" : "Natural and bilingual"}</p>
-          <p className="mt-1 text-xs text-slate-500">{isItalian ? "Italiano e inglese, con pronuncia curata" : "Italian and English, with clear pronunciation"}</p>
-        </div>
-        <div className="card p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-            {isItalian ? "Memoria" : "Memory"}
-          </p>
-          <p className="mt-2 text-sm font-semibold">
-            {contextTotal}{" "}
+      <div className="card mb-9 p-2 sm:flex sm:items-center sm:gap-2">
+        <nav aria-label={isItalian ? "Filtra meeting" : "Filter meetings"} className="grid grid-cols-2 gap-1 sm:flex sm:flex-1">
+          {[
+            { value: undefined, it: "Panoramica", en: "Overview" },
+            { value: "attention" as const, it: "Da gestire", en: "Needs action" },
+            { value: "series" as const, it: "Serie", en: "Series" },
+            { value: "upcoming" as const, it: "Prossimi", en: "Upcoming" },
+            { value: "history" as const, it: "Storico", en: "History" },
+          ].map((item) => {
+            const active = view === item.value;
+            return (
+              <Link
+                key={item.value || "overview"}
+                href={meetingsHref(item.value, 1, search)}
+                aria-current={active ? "page" : undefined}
+                className={`rounded-lg px-3 py-2.5 text-center text-sm font-semibold transition ${active ? "bg-[#e7f0e9] text-[#24563d]" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"}`}
+              >
+                {isItalian ? item.it : item.en}
+              </Link>
+            );
+          })}
+        </nav>
+        <form action="/meetings" className="mt-2 flex gap-2 border-t border-slate-100 pt-2 sm:mt-0 sm:w-80 sm:border-l sm:border-t-0 sm:pl-2 sm:pt-0">
+          {view && <input type="hidden" name="view" value={view} />}
+          <label className="sr-only" htmlFor="meeting-search">{isItalian ? "Cerca meeting" : "Search meetings"}</label>
+          <input id="meeting-search" name="q" type="search" defaultValue={search} className="input min-w-0" placeholder={isItalian ? "Cerca per titolo o obiettivo" : "Search title or objective"} />
+          <button type="submit" className="button-secondary shrink-0">
+            {isItalian ? "Cerca" : "Search"}
+          </button>
+        </form>
+      </div>
+
+      {search && (
+        <div className="mb-7 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[#edf4ef] px-4 py-3 text-sm">
+          <p>
+            <strong>{searchResultTotal}</strong>{" "}
             {isItalian
-              ? contextTotal === 1
-                ? "contesto"
-                : "contesti"
-              : contextTotal === 1
-                ? "context"
-                : "contexts"}
+              ? `${searchResultTotal === 1 ? "risultato" : "risultati"} per “${search}”`
+              : `${searchResultTotal === 1 ? "result" : "results"} for “${search}”`}
           </p>
-          <Link href="/memory" className="mt-1 inline-flex text-xs font-medium text-[#295c43] hover:underline">{isItalian ? "Apri memoria →" : "Open memory →"}</Link>
+          <Link href={meetingsHref(view)} className="font-semibold text-[#295c43] hover:underline">{isItalian ? "Azzera ricerca" : "Clear search"}</Link>
         </div>
-      </section>
+      )}
 
       <div className="space-y-10">
         {!view && attentionTotal > 0 && (
@@ -569,6 +632,7 @@ export default async function MeetingsPage({
             locale={locale}
             expanded={false}
             page={1}
+            search={search}
           />
         )}
 
@@ -579,10 +643,11 @@ export default async function MeetingsPage({
             locale={locale}
             expanded
             page={page}
+            search={search}
           />
         )}
 
-        {(!view || view === "series") && seriesTotal > 0 && (
+        {((!view && seriesTotal > 0) || view === "series") && (
           <section>
             <CollectionHeading
               title={isItalian ? "Serie di meeting" : "Meeting series"}
@@ -594,19 +659,26 @@ export default async function MeetingsPage({
               view="series"
               expanded={view === "series"}
               hasMore={!view && seriesTotal > DASHBOARD_SERIES_LIMIT}
+              search={search}
             />
-            <div className="grid gap-4 md:grid-cols-2">
-              {series.map((item) => (
-                <MeetingSeriesCard
-                  key={item.id}
-                  series={item}
-                  meetings={seriesMeetings.filter((meeting) => meeting.seriesId === item.id)}
-                  locale={locale}
-                />
-              ))}
-            </div>
+            {series.length ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                {series.map((item) => (
+                  <MeetingSeriesCard
+                    key={item.id}
+                    series={item}
+                    meetings={seriesMeetings.filter((meeting) => meeting.seriesId === item.id)}
+                    locale={locale}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="card border-dashed p-6 text-sm text-slate-500">
+                {isItalian ? "Nessuna serie trovata." : "No meeting series found."}
+              </div>
+            )}
             {view === "series" && (
-              <Pagination view="series" page={page} total={seriesTotal} locale={locale} />
+              <Pagination view="series" page={page} total={seriesTotal} locale={locale} search={search} />
             )}
           </section>
         )}
@@ -618,7 +690,9 @@ export default async function MeetingsPage({
               ? "Gli appuntamenti singoli già programmati."
               : "Scheduled standalone appointments."}
             empty={
-              isItalian
+              search
+                ? isItalian ? "Nessun meeting corrisponde alla ricerca." : "No meetings match your search."
+                : isItalian
                 ? seriesTotal
                   ? "Non ci sono meeting singoli programmati."
                   : "Non hai ancora programmato meeting. Puoi creare un incontro singolo oppure una serie."
@@ -632,22 +706,26 @@ export default async function MeetingsPage({
             view="upcoming"
             expanded={view === "upcoming"}
             page={page}
+            search={search}
           />
         )}
 
-        {(!view || view === "history") && historyTotal > 0 && (
+        {((!view && historyTotal > 0) || view === "history") && (
           <MeetingSection
             title={isItalian ? "Storico" : "History"}
             description={isItalian
               ? "Meeting conclusi e annullati, dal più recente."
               : "Completed and cancelled meetings, newest first."}
-            empty=""
+            empty={search
+              ? isItalian ? "Nessun meeting concluso corrisponde alla ricerca." : "No completed meetings match your search."
+              : isItalian ? "Lo storico è ancora vuoto." : "History is empty."}
             meetings={history}
             total={historyTotal}
             locale={locale}
             view="history"
             expanded={view === "history"}
             page={page}
+            search={search}
           />
         )}
       </div>

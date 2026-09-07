@@ -18,7 +18,7 @@ export default async function NewMeetingPage() {
   const profile = await getAssistantProfile();
 
   return (
-    <div className="container-page py-10 sm:py-14">
+    <div className="container-page py-8 sm:py-12">
       <Link
         href="/meetings"
         className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-950"
@@ -26,17 +26,17 @@ export default async function NewMeetingPage() {
         <span aria-hidden="true">←</span>
         {isItalian ? "Tutti i meeting" : "All meetings"}
       </Link>
-      <div className="mb-8 max-w-3xl">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#295c43]">
+      <div className="mb-7 max-w-3xl">
+        <p className="section-kicker">
           {isItalian ? "Nuova programmazione" : "New schedule"}
         </p>
         <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">
-          {isItalian ? "Prepara il collega digitale" : "Prepare the digital colleague"}
+          {isItalian ? "Aggiungi un meeting" : "Add a meeting"}
         </h1>
         <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base">
           {isItalian
-            ? "Scegli un meeting singolo oppure una serie con più date e link. Gli appuntamenti della serie condivideranno automaticamente la memoria."
-            : "Choose a single meeting or a series with multiple dates and links. Appointments in a series automatically share memory."}
+            ? "Incolla il link Teams e scegli se entrare subito o all’orario stabilito. Per più appuntamenti, crea una serie con memoria condivisa."
+            : "Paste the Teams link and choose whether to join now or at a scheduled time. For multiple appointments, create a series with shared memory."}
         </p>
       </div>
       <MeetingCreateForm automation={automation} assistantName={profile.displayName} />

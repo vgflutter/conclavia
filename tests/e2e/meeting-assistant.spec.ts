@@ -80,7 +80,7 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
       await page.goto("/meetings/new");
       await waitForClientReady(page);
       await expect(
-        page.getByRole("heading", { name: "Prepara il collega digitale" }),
+        page.getByRole("heading", { name: "Aggiungi un meeting" }),
       ).toBeVisible();
 
       await page.getByLabel("Titolo del meeting").fill(title);
@@ -175,7 +175,7 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
       await page
         .getByPlaceholder("Es. Ricorda che il lancio è fissato al 15 ottobre")
         .fill(rememberedFact);
-      await page.getByRole("button", { name: "Esegui" }).click();
+      await page.getByRole("button", { name: "Invia" }).click();
       await expect(
         page.getByText("Ricevuto. L’ho salvato nella memoria del meeting."),
       ).toBeVisible();
@@ -193,6 +193,7 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
     });
 
     await test.step("salva l'esito e lo ritrova nella memoria", async () => {
+      await page.getByText(/^(Completa|Modifica) il riepilogo$/).click();
       await page.getByLabel("Riepilogo").fill(`Riepilogo E2E ${marker}`);
       await page.getByLabel("Da ricordare · uno per riga").fill(rememberedFact);
       await page.getByLabel("Decisioni · una per riga").fill(`Roadmap approvata ${marker}`);
@@ -211,8 +212,12 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
       await expect(page.getByText(transcriptPassage)).toBeVisible();
 
       await page.goto("/memory");
+      await page.getByLabel("Cerca nella memoria").fill(rememberedFact);
+      await page.getByRole("button", { name: "Cerca", exact: true }).click();
+      await expect(page).toHaveURL(/\/memory\?q=/);
       const memoryCard = page.getByRole("article").filter({ hasText: title });
       await expect(memoryCard).toBeVisible();
+      await memoryCard.getByText("Dettagli della memoria", { exact: true }).click();
       await expect(memoryCard.getByText(rememberedFact)).toBeVisible();
       await expect(memoryCard.getByText(`Roadmap approvata ${marker}`)).toBeVisible();
       await expect(memoryCard.getByText(`Preparare la demo ${marker} · Vincenzo`)).toBeVisible();
@@ -265,6 +270,7 @@ test("serie: due appuntamenti condividono la memoria", async ({ page, request })
     await expect(page.getByText("2 appuntamenti")).toBeVisible();
 
     await page.getByRole("link", { name: new RegExp(firstLabel) }).click();
+    await page.getByText("Completa il riepilogo", { exact: true }).click();
     await page.getByLabel("Riepilogo").fill(`Esito del kickoff ${marker}`);
     await page.getByLabel("Da ricordare · uno per riga").fill(sharedFact);
     await page.getByLabel("Decisioni · una per riga").fill(`Procedere ${marker}`);
@@ -351,6 +357,24 @@ test("dashboard: limita il centro attività e apre la vista completa", async ({
       await expect(page.getByText(title, { exact: true })).toBeVisible();
     }
     await expect(page.getByRole("heading", { name: "Prossimi meeting" })).toHaveCount(0);
+
+    await page.getByLabel("Cerca meeting").fill(titles[3]);
+    await page.getByRole("button", { name: "Cerca", exact: true }).click();
+    await expect(page).toHaveURL(/view=attention.*q=E2E/);
+    await expect(page.getByText(titles[3], { exact: true })).toBeVisible();
+    await expect(page.getByText(titles[0], { exact: true })).toHaveCount(0);
+    await page.getByRole("link", { name: "Azzera ricerca" }).click();
+    await expect(page).toHaveURL(/view=attention(?!.*q=)/);
+    await expect(page.getByLabel("Cerca meeting")).toHaveValue("");
+
+    await page
+      .getByRole("navigation", { name: "Filtra meeting" })
+      .getByRole("link", { name: "Storico" })
+      .click();
+    await expect(page).toHaveURL(/view=history/);
+    await page.getByLabel("Cerca meeting").fill(`Nessun risultato ${marker}`);
+    await page.getByRole("button", { name: "Cerca", exact: true }).click();
+    await expect(page.getByText("Nessun meeting concluso corrisponde alla ricerca.")).toBeVisible();
   } finally {
     await Promise.all(
       meetingIds.map(async (meetingId) => {
@@ -367,6 +391,42 @@ test("dashboard: limita il centro attività e apre la vista completa", async ({
       }),
     );
   }
+});
+
+test("interfaccia mobile: navigazione e azioni principali restano utilizzabili", async ({
+  page,
+}) => {
+  await useItalian(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  async function expectNoHorizontalOverflow() {
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+        ),
+      )
+      .toBe(true);
+  }
+
+  await page.goto("/meetings");
+  await expect(page.getByRole("heading", { name: "Meeting", exact: true })).toBeVisible();
+  await expectNoHorizontalOverflow();
+
+  const mobileNavigation = page.getByRole("navigation", { name: "Navigazione mobile" });
+  await mobileNavigation.getByRole("link", { name: "Memoria" }).click();
+  await expect(page).toHaveURL(/\/memory$/);
+  await expectNoHorizontalOverflow();
+
+  await mobileNavigation.getByRole("link", { name: "Avatar" }).click();
+  await expect(page).toHaveURL(/\/avatar$/);
+  await expectNoHorizontalOverflow();
+
+  await page.getByRole("link", { name: "Nuovo meeting" }).first().click();
+  await expect(page.getByRole("heading", { name: "Aggiungi un meeting" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Meeting singolo/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Serie di meeting/ })).toBeVisible();
+  await expectNoHorizontalOverflow();
 });
 
 test("l'avatar si prova senza creare un meeting", async ({ page }) => {
