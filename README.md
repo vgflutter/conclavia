@@ -38,14 +38,17 @@ Completed appointments contribute their summary, remembered facts, decisions, op
 
 ## Meeting behavior
 
-The wake phrase is **“Conclavia…”**. Four commands are supported in Italian and English:
+The participant name configured in **Avatar** is also its wake phrase. If the name is changed to “Nora”, for example, the colleague responds to **“Nora…”** and future Teams participants use that name. Five commands are supported in Italian and English:
 
 - **Remember** stores an explicit fact in the current meeting memory.
 - **Summarize** creates a spoken summary and stores it as the meeting overview.
+- **Agenda** identifies the next open item and can mark an item as complete.
 - **Answer** responds from the current transcript and shared series memory.
 - **Verify** checks a statement against known meeting facts and decisions.
 
-When the correction policy is set to important inaccuracies, Conclavia periodically checks substantive statements against reliable stored memory. It speaks only when a clear, material conflict is found. The checks are rate-limited to control cost and interruptions.
+When proactive contributions are enabled, the colleague checks substantive statements for material errors and for reliable stored information that would advance the current objective or agenda. It raises its hand and prepares the contribution, but does not speak yet. A participant must grant the floor using its configured name, for example **“Nora, go ahead”** or **“Nora, vai pure”**. Because the answer is prepared while the hand is raised, playback can begin without a second model request.
+
+At the end of a meeting, the transcript is condensed into an overview, facts, decisions, actions and open questions. Those items become the continuity briefing for later appointments in the same series.
 
 The assistant personality has two deliberately simple controls: response length and attitude. Those choices are included in the meeting prompt.
 
@@ -60,6 +63,7 @@ Attendee anonymous participant + native Teams captions
         ▼
 Conclavia meeting output page
         ├── wake phrase and command routing
+        ├── prepared request-to-speak and explicit permission
         ├── MongoDB transcript and series memory
         ├── OpenAI Responses API for meeting intelligence (optional)
         └── local Supertonic voice + lip sync + expressions
@@ -78,6 +82,8 @@ Attendee loads the protected `/meeting-room/[token]` page inside an isolated mee
 - The default model is `gpt-5.4-mini`; it can be changed with `OPENAI_MEETING_MODEL`.
 - Audio is not stored. The live transcript and selected memory are stored in MongoDB.
 - No external meeting participant is created while `MEETING_BOT_PROVIDER=preview`.
+
+Latency-sensitive paths are deliberately short: presence checks, explicit memory and agenda commands run locally; meeting output polls for a prepared response every 650 ms; model requests use no reasoning phase, low verbosity and small output limits. Only the recent transcript window and a bounded set of relevant memory are sent, with stable instructions kept separate from changing meeting context to improve prompt caching.
 
 The Supertonic model is downloaded on first voice use and cached by the browser. Review [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before distribution.
 
@@ -115,20 +121,20 @@ Set `MONGODB_URI`, then open [http://localhost:3000/meetings](http://localhost:3
 | `ATTENDEE_WEBHOOK_SECRET` | Recommended | Base64 webhook signing secret from Attendee Settings. A private per-meeting callback token is used when it is absent. |
 | `TEAMS_ACCESS_MODE` | No | Use `anonymous_guest` for the supported unattended flow. |
 | `TEAMS_GUEST_ACCOUNT_EMAIL` | Legacy signed-in mode | Dedicated Microsoft identity used by older provider deployments. |
-| `TEAMS_GUEST_DISPLAY_NAME` | No | Requested participant name when the provider permits it. |
+| `TEAMS_GUEST_DISPLAY_NAME` | No | Fallback participant name; the name saved under Avatar normally takes precedence. |
 | `TEAMS_SIGNED_IN_CONFIRMED` | Legacy signed-in mode | Retained for older provider deployments. |
 
 Never commit real credentials. Inject them through the deployment platform's secret store.
 
 ## Microsoft Teams setup
 
-For the first test, use a Personal Teams meeting created from Hotmail and keep `TEAMS_ACCESS_MODE=anonymous_guest`. The participant joins with the Conclavia display name and must be admitted if the meeting uses a lobby.
+For the first test, use a Personal Teams meeting created from Hotmail and keep `TEAMS_ACCESS_MODE=anonymous_guest`. The participant joins with the name configured under Avatar and must be admitted if the meeting uses a lobby.
 
 1. Create an Attendee API key and store it as `ATTENDEE_API_KEY`.
 2. Deploy Conclavia at a stable public HTTPS origin and set that origin as `CONCLAVIA_PUBLIC_URL`.
 3. Set `MEETING_BOT_PROVIDER=attendee` and `TEAMS_ACCESS_MODE=anonymous_guest`.
 4. Recommended before production: copy the signing secret from Attendee **Settings → Webhooks** into `ATTENDEE_WEBHOOK_SECRET`. Conclavia creates the bot-level webhook automatically for each meeting; no project webhook needs to be created manually.
-5. Create a meeting with **Entra ora** or schedule a future appointment. Admit **Conclavia** from the Teams lobby when prompted.
+5. Create a meeting with **Entra ora** or schedule a future appointment. Admit the configured digital colleague from the Teams lobby when prompted.
 
 The organizer's Teams policy must allow anonymous guests and captions. If company policy blocks either feature, the meeting detail page reports the failed entry or missing transcription instead of silently pretending the assistant is active.
 
@@ -138,12 +144,14 @@ The organizer's Teams policy must allow anonymous guests and captions. If compan
 npm run verify
 ```
 
-This runs ESLint, TypeScript, a production build, and seven Playwright scenarios covering:
+This runs ESLint, TypeScript, a production build, and eight Playwright scenarios covering:
 
 - single-meeting creation, agenda, commands, memory, and cleanup;
 - series creation and continuity across two appointments;
 - avatar navigation, facial mood, and hand raise;
-- Italian and English wake-phrase command parsing;
+- dynamic Italian and English wake-phrase command parsing;
+- deterministic correction detection and explicit permission to speak;
+- local command response-time thresholds;
 - Recall legacy transcript parsing and Attendee signed-webhook parsing;
 - database health and protected meeting-output behavior.
 

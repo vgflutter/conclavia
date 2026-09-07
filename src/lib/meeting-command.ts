@@ -28,6 +28,64 @@ function normalizedWakePhrase(value: string): string {
     .trim();
 }
 
+function normalizedSpeech(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+const SMALL_NUMBERS: Record<string, number> = {
+  zero: 0, uno: 1, one: 1, due: 2, two: 2, tre: 3, three: 3,
+  quattro: 4, four: 4, cinque: 5, five: 5, sei: 6, six: 6,
+  sette: 7, seven: 7, otto: 8, eight: 8, nove: 9, nine: 9,
+  dieci: 10, ten: 10, undici: 11, eleven: 11, dodici: 12, twelve: 12,
+};
+
+function numberFromSpeech(value: string): number | undefined {
+  if (/^\d+$/.test(value)) return Number(value);
+  return SMALL_NUMBERS[normalizedSpeech(value)];
+}
+
+export function detectElementaryArithmetic(
+  statement: string,
+): { reason: string; response: string } | undefined {
+  const match = /\b(\d+|zero|uno|one|due|two|tre|three|quattro|four|cinque|five|sei|six|sette|seven|otto|eight|nove|nine|dieci|ten)\s*(?:x|per|times)\s*(\d+|zero|uno|one|due|two|tre|three|quattro|four|cinque|five|sei|six|sette|seven|otto|eight|nove|nine|dieci|ten)\s*(?:fa|è|is|equals?)\s*(\d+|zero|uno|one|due|two|tre|three|quattro|four|cinque|five|sei|six|sette|seven|otto|eight|nove|nine|dieci|ten|undici|eleven|dodici|twelve)\b/iu.exec(statement);
+  if (!match) return undefined;
+  const left = numberFromSpeech(match[1]);
+  const right = numberFromSpeech(match[2]);
+  const claimed = numberFromSpeech(match[3]);
+  if (left === undefined || right === undefined || claimed === undefined) return undefined;
+  const actual = left * right;
+  if (actual === claimed) return undefined;
+  const isEnglish = /\b(?:times|is|equals?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/iu
+    .test(statement);
+  return {
+    reason: "The stated arithmetic result is objectively incorrect.",
+    response: isEnglish
+      ? `A quick correction: ${left} times ${right} is ${actual}, not ${claimed}.`
+      : `Una rapida correzione: ${left} per ${right} fa ${actual}, non ${claimed}.`,
+  };
+}
+
+export function meetingPermissionDecision(
+  text: string,
+  wakeWord: string,
+): "grant" | "decline" | undefined {
+  const spoken = ` ${normalizedSpeech(text)} `;
+  const trigger = ` ${normalizedSpeech(wakeWord)} `;
+  if (!trigger.trim() || !spoken.includes(trigger)) return undefined;
+  if (/\b(?:vai pure|prego|puoi parlare|puoi intervenire|intervieni|dimmi pure|go ahead|you can speak|please speak)\b/iu.test(text)) {
+    return "grant";
+  }
+  if (/\b(?:lascia stare|non ora|abbassa la mano|non intervenire|never mind|not now|lower your hand)\b/iu.test(text)) {
+    return "decline";
+  }
+  return undefined;
+}
+
 export function isMeetingWakePhrase(spokenText: string, wakeWord: string): boolean {
   const spoken = normalizedWakePhrase(spokenText);
   const trigger = normalizedWakePhrase(wakeWord);
@@ -50,7 +108,10 @@ export function parseMeetingVoiceCommand(
 ): { kind: MeetingCommandKind; prompt: string } | undefined {
   const trigger = wakeWord.trim();
   if (!spokenText.trim() || !trigger) return undefined;
-  const escapedTrigger = trigger.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escapedTrigger = trigger
+    .split(/\s+/)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("\\s+");
   const triggerPattern = normalizedWakePhrase(trigger) === "conclavia"
     ? `(?:${escapedTrigger}|con\\s+clavia|con\\s+la\\s+via|con\\s+lavia|assistente|collega\\s+digitale)`
     : escapedTrigger;
@@ -81,6 +142,10 @@ export function parseMeetingVoiceCommand(
       kind: "summary",
       pattern: /^(?:riepiloga|riassumi|fammi\s+(?:un\s+)?riepilogo|summarize|summary)\b\s*/iu,
     },
+    {
+      kind: "agenda",
+      pattern: /^(?:scaletta|agenda|prossimo\s+punto|next\s+(?:agenda\s+)?item)\b\s*/iu,
+    },
     { kind: "correct", pattern: /^(?:verifica|correggi|controlla|verify|check)\b\s*/iu },
     { kind: "ask", pattern: /^(?:rispondi|dimmi|answer)\b\s*/iu },
   ];
@@ -88,8 +153,12 @@ export function parseMeetingVoiceCommand(
   for (const rule of rules) {
     if (!rule.pattern.test(request)) continue;
     const prompt = request.replace(rule.pattern, "").trim();
-    if (rule.kind !== "summary" && !prompt) return undefined;
+    if (!["summary", "agenda"].includes(rule.kind) && !prompt) return undefined;
     return { kind: rule.kind, prompt };
+  }
+
+  if (/\b(?:scaletta|agenda|prossimo\s+punto|next\s+(?:agenda\s+)?item)\b/iu.test(request)) {
+    return { kind: "agenda", prompt: request };
   }
 
   return { kind: "ask", prompt: request };

@@ -264,8 +264,27 @@ export default async function MeetingPage({ params }: MeetingPageProps) {
 
         <MeetingAgendaManager meetingId={meeting.id} initialAgenda={meeting.agenda} />
 
+        {meeting.pendingIntervention && (
+            <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 sm:p-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.15em] text-amber-800">
+                {isItalian ? "Ha alzato la mano" : "Hand raised"}
+              </p>
+              <h2 className="mt-2 text-lg font-semibold text-amber-950">
+                {meeting.pendingIntervention.type === "correction"
+                  ? isItalian ? "Ha rilevato una possibile correzione importante" : "It found a possible important correction"
+                  : isItalian ? "Ha un’informazione rilevante" : "It has relevant information"}
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-amber-900/75">
+                {isItalian
+                  ? `Per ascoltarlo, dì nel meeting: “${meeting.assistant.wakeWord}, vai pure”.`
+                  : `To hear it, say in the meeting: “${meeting.assistant.wakeWord}, go ahead”.`}
+              </p>
+            </section>
+          )}
+
         <MeetingAssistantConsole
           meetingId={meeting.id}
+          assistantName={meeting.assistant.wakeWord}
           initialHistory={meeting.commandHistory}
         />
 
@@ -345,6 +364,24 @@ export default async function MeetingPage({ params }: MeetingPageProps) {
                 <dt className="text-slate-500">{isItalian ? "Voce" : "Voice"}</dt>
                 <dd className="text-right font-semibold">
                   {isItalian ? "Naturale e bilingue" : "Natural and bilingual"}
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-4 py-3">
+                <dt className="text-slate-500">{isItalian ? "Domande" : "Questions"}</dt>
+                <dd className="max-w-sm text-right font-semibold">
+                  {isItalian
+                    ? `Pronuncia “${meeting.assistant.wakeWord}” e fai la domanda.`
+                    : `Say “${meeting.assistant.wakeWord}” and ask the question.`}
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-4 py-3">
+                <dt className="text-slate-500">{isItalian ? "Interventi spontanei" : "Proactive contributions"}</dt>
+                <dd className="max-w-sm text-right font-semibold">
+                  {meeting.assistant.correctionPolicy === "important_only"
+                    ? isItalian
+                      ? `Alza la mano e attende “${meeting.assistant.wakeWord}, vai pure”.`
+                      : `Raises its hand and waits for “${meeting.assistant.wakeWord}, go ahead”.`
+                    : isItalian ? "Non attivi" : "Not enabled"}
                 </dd>
               </div>
               <div className="flex items-center justify-between gap-4 py-3">

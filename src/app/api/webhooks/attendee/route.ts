@@ -8,6 +8,7 @@ import {
   type AttendeeWebhookEvent,
 } from "@/lib/attendee-webhook";
 import { getMeetingBotRuntimeConfig } from "@/lib/meeting-bot-config";
+import { finalizeMeeting } from "@/lib/finalize-meeting";
 import { connectToDatabase } from "@/lib/mongodb";
 import {
   processMeetingTranscriptAutomation,
@@ -232,6 +233,14 @@ export async function POST(request: Request) {
   if (transcriptStored && transcript) {
     const meetingId = meeting._id.toString();
     after(() => runTranscriptAutomation(meetingId, transcript.text));
+  }
+  if (
+    event.trigger === "bot.state_change" &&
+    event.data.new_state === "ended" &&
+    !meeting.summary.generatedAt
+  ) {
+    const meetingId = meeting._id.toString();
+    after(() => finalizeMeeting(meetingId));
   }
 
   return NextResponse.json({ received: true });

@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { DEFAULT_ASSISTANT_PROFILE, getAssistantProfile } from "@/lib/assistant-profile";
 import { connectToDatabase } from "@/lib/mongodb";
 import { AssistantProfileModel } from "@/models/AssistantProfile";
+import { MeetingModel } from "@/models/Meeting";
+import { MeetingSeriesModel } from "@/models/MeetingSeries";
 import type {
   AssistantAttitude,
   AssistantResponseStyle,
@@ -65,6 +67,16 @@ export async function PATCH(request: Request) {
       },
       { upsert: true, runValidators: true, setDefaultsOnInsert: true },
     ).exec();
+    await Promise.all([
+      MeetingModel.updateMany(
+        { status: { $in: ["scheduled", "joining", "waiting_room", "live"] } },
+        { $set: { "assistant.wakeWord": displayName } },
+      ).exec(),
+      MeetingSeriesModel.updateMany(
+        {},
+        { $set: { "assistant.wakeWord": displayName } },
+      ).exec(),
+    ]);
     return NextResponse.json({ profile: await getAssistantProfile() });
   } catch (error) {
     console.error("Unable to save avatar profile", error);

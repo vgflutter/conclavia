@@ -11,11 +11,21 @@ type SerializedCommandEvent = Omit<MeetingCommandEvent, "createdAt"> & { created
 const commandMeta: Record<MeetingCommandKind, { icon: string; it: string; en: string }> = {
   remember: { icon: "◆", it: "Ricorda", en: "Remember" },
   summary: { icon: "≡", it: "Riepiloga", en: "Summarize" },
+  agenda: { icon: "→", it: "Scaletta", en: "Agenda" },
   ask: { icon: "?", it: "Rispondi", en: "Answer" },
   correct: { icon: "✓", it: "Verifica", en: "Verify" },
+  inform: { icon: "!", it: "Informazione", en: "Information" },
 };
 
-export function MeetingAssistantConsole({ meetingId, initialHistory }: { meetingId: string; initialHistory: SerializedCommandEvent[] }) {
+const selectableCommands: MeetingCommandKind[] = [
+  "remember",
+  "summary",
+  "agenda",
+  "ask",
+  "correct",
+];
+
+export function MeetingAssistantConsole({ meetingId, assistantName, initialHistory }: { meetingId: string; assistantName: string; initialHistory: SerializedCommandEvent[] }) {
   const router = useRouter();
   const { locale } = useTranslations();
   const isItalian = locale === "it";
@@ -26,7 +36,7 @@ export function MeetingAssistantConsole({ meetingId, initialHistory }: { meeting
   const [error, setError] = useState<string>();
 
   async function execute(commandKind = kind) {
-    if (commandKind !== "summary" && !prompt.trim()) return;
+    if (!["summary", "agenda"].includes(commandKind) && !prompt.trim()) return;
     setPending(true);
     setError(undefined);
     try {
@@ -54,8 +64,10 @@ export function MeetingAssistantConsole({ meetingId, initialHistory }: { meeting
   const placeholders: Record<MeetingCommandKind, string> = {
     remember: isItalian ? "Es. Ricorda che il lancio è fissato al 15 ottobre" : "E.g. Remember that launch is set for October 15",
     summary: "",
+    agenda: "",
     ask: isItalian ? "Fai una domanda sulla memoria della serie" : "Ask a question about series memory",
     correct: isItalian ? "Inserisci l’affermazione da verificare" : "Enter the statement to verify",
+    inform: "",
   };
 
   return (
@@ -66,17 +78,17 @@ export function MeetingAssistantConsole({ meetingId, initialHistory }: { meeting
             <p className="text-xs font-semibold uppercase tracking-[0.15em] text-[#bde88d]">{isItalian ? "Comandi in meeting" : "In-meeting commands"}</p>
             <h2 className="mt-2 text-xl font-semibold">{isItalian ? "Parla con il collega digitale" : "Talk to the digital colleague"}</h2>
           </div>
-          <span className="rounded-full bg-white/8 px-3 py-1 text-xs font-semibold text-white/60">“Conclavia…”</span>
+          <span className="rounded-full bg-white/8 px-3 py-1 text-xs font-semibold text-white/60">“{assistantName}…”</span>
         </div>
-        <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {(Object.keys(commandMeta) as MeetingCommandKind[]).map((commandKind) => (
-            <button key={commandKind} type="button" aria-pressed={kind === commandKind} onClick={() => { setKind(commandKind); if (commandKind === "summary") void execute("summary"); }} className={`rounded-xl border px-3 py-3 text-left transition ${kind === commandKind ? "border-[#bde88d]/50 bg-[#bde88d]/12 text-[#dfffb7]" : "border-white/10 bg-white/4 text-white/65 hover:bg-white/8"}`}>
+        <div className="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {selectableCommands.map((commandKind) => (
+            <button key={commandKind} type="button" aria-pressed={kind === commandKind} onClick={() => { setKind(commandKind); if (["summary", "agenda"].includes(commandKind)) void execute(commandKind); }} className={`rounded-xl border px-3 py-3 text-left transition ${kind === commandKind ? "border-[#bde88d]/50 bg-[#bde88d]/12 text-[#dfffb7]" : "border-white/10 bg-white/4 text-white/65 hover:bg-white/8"}`}>
               <span className="mr-2 text-[#bde88d]" aria-hidden="true">{commandMeta[commandKind].icon}</span>
               <span className="text-sm font-semibold">{isItalian ? commandMeta[commandKind].it : commandMeta[commandKind].en}</span>
             </button>
           ))}
         </div>
-        {kind !== "summary" && (
+        {!["summary", "agenda"].includes(kind) && (
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
             <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder={placeholders[kind]} maxLength={2_000} className="min-h-20 flex-1 resize-none rounded-xl border border-white/12 bg-black/20 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-[#bde88d]/60" />
             <button type="button" onClick={() => execute()} disabled={pending || !prompt.trim()} className="min-w-28 rounded-xl bg-[#bde88d] px-4 py-3 text-sm font-bold text-[#142516] transition hover:bg-[#d7f5ae] disabled:opacity-50">{pending ? "…" : isItalian ? "Esegui" : "Run"}</button>

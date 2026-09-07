@@ -85,6 +85,7 @@ export async function POST(request: Request, context: RouteContext) {
         seriesId: series._id,
         seriesLabel: series.title,
         seriesKey: meetingSeriesKey(series.title, series.title),
+        assistantName: series.assistant?.wakeWord,
       }),
     );
     await scheduleMeetingBot(meeting);

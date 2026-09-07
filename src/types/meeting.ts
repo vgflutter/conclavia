@@ -27,7 +27,14 @@ export type MeetingBotStatus =
 export type MeetingLanguage = "auto" | "it" | "en";
 export type AgendaItemStatus = "pending" | "covered" | "skipped";
 export type CorrectionPolicy = "important_only" | "on_request" | "off";
-export type MeetingCommandKind = "remember" | "summary" | "ask" | "correct";
+export type MeetingCommandKind =
+  | "remember"
+  | "summary"
+  | "agenda"
+  | "ask"
+  | "correct"
+  | "inform";
+export type MeetingInterventionType = "correction" | "relevant_information";
 
 export interface MeetingAgendaInput {
   title: string;
@@ -110,6 +117,17 @@ export interface MeetingCommandEvent {
   createdAt: Date;
 }
 
+export interface MeetingPendingIntervention {
+  id: string;
+  type: MeetingInterventionType;
+  sourceSpeaker?: string;
+  sourceStatement: string;
+  reason: string;
+  response: string;
+  createdAt: Date;
+  expiresAt: Date;
+}
+
 export interface MeetingSummary {
   overview: string;
   rememberedFacts: string[];
@@ -168,6 +186,7 @@ export interface MeetingRecord {
   agenda: MeetingAgendaItem[];
   assistant: MeetingAssistantConfiguration;
   commandHistory: MeetingCommandEvent[];
+  pendingIntervention?: MeetingPendingIntervention;
   bot: MeetingBotConfiguration;
   voice: MeetingVoiceConfiguration;
   retention: MeetingRetentionConfiguration;
@@ -196,6 +215,10 @@ export interface MeetingResponse {
   agenda: MeetingAgendaItem[];
   assistant: MeetingAssistantConfiguration;
   commandHistory: Array<Omit<MeetingCommandEvent, "createdAt"> & { createdAt: string }>;
+  pendingIntervention?: Omit<MeetingPendingIntervention, "createdAt" | "expiresAt"> & {
+    createdAt: string;
+    expiresAt: string;
+  };
   bot: {
     provider: MeetingBotProvider;
     accessMode: MeetingAccessMode;

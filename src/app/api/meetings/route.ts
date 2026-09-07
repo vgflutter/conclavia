@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { meetingDocumentData } from "@/lib/meeting-factory";
+import { getAssistantProfile } from "@/lib/assistant-profile";
 import { scheduleMeetingBot } from "@/lib/meeting-bot-scheduler";
 import { connectToDatabase } from "@/lib/mongodb";
 import { validateMeetingInput } from "@/lib/meeting-validation";
@@ -41,7 +42,10 @@ export async function POST(request: Request) {
 
   try {
     await connectToDatabase();
-    const meeting = await MeetingModel.create(meetingDocumentData(result.data));
+    const profile = await getAssistantProfile();
+    const meeting = await MeetingModel.create(
+      meetingDocumentData(result.data, { assistantName: profile.displayName }),
+    );
     await scheduleMeetingBot(meeting);
 
     return NextResponse.json({ meeting: serializeMeeting(meeting) }, { status: 201 });

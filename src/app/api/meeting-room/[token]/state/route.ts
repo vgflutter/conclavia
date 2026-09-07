@@ -18,16 +18,24 @@ export async function GET(
   try {
     await connectToDatabase();
     const meeting = await MeetingModel.findOne({ "bot.outputToken": token })
-      .select("status commandHistory")
+      .select("status commandHistory pendingIntervention")
       .exec();
     if (!meeting) {
       return NextResponse.json({ error: "Meeting output not found" }, { status: 404 });
     }
 
     const latest = meeting.commandHistory.at(-1);
+    const pending = meeting.pendingIntervention &&
+      meeting.pendingIntervention.expiresAt.getTime() > Date.now()
+      ? {
+          id: meeting.pendingIntervention.id,
+          type: meeting.pendingIntervention.type,
+        }
+      : undefined;
     return NextResponse.json(
       {
         status: meeting.status,
+        pendingIntervention: pending,
         command: latest
           ? {
               id: latest.id,

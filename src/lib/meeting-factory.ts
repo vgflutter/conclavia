@@ -19,9 +19,10 @@ export function localVoiceConfiguration(): MeetingVoiceConfiguration {
 
 export function meetingAssistantConfiguration(
   correctionPolicy: MeetingCreateInput["correctionPolicy"],
+  invocationName = "Conclavia",
 ): MeetingAssistantConfiguration {
   return {
-    wakeWord: "Conclavia",
+    wakeWord: invocationName.trim().slice(0, 80) || "Conclavia",
     answerQuestions: true,
     captureMemory: true,
     summarizeOnRequest: true,
@@ -35,6 +36,7 @@ export function meetingDocumentData(
     seriesId?: Types.ObjectId;
     seriesLabel?: string;
     seriesKey?: string;
+    assistantName?: string;
   } = {},
 ) {
   const scheduledStart = new Date(input.scheduledStart);
@@ -66,7 +68,10 @@ export function meetingDocumentData(
       mandatory: item.mandatory,
       status: "pending" as const,
     })),
-    assistant: meetingAssistantConfiguration(input.correctionPolicy),
+    assistant: meetingAssistantConfiguration(
+      input.correctionPolicy,
+      options.assistantName,
+    ),
     commandHistory: [],
     bot: {
       provider: "mock" as const,

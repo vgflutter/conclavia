@@ -86,8 +86,13 @@ export function AvatarSettingsForm({ profile }: { profile: AssistantProfileRespo
           <h2 className="mt-2 text-xl font-semibold">{isItalian ? "Come appare nel meeting" : "How it appears in the meeting"}</h2>
           <div className="mt-6 grid gap-5 sm:grid-cols-2">
             <div>
-              <label className="label" htmlFor="avatar-name">{isItalian ? "Nome partecipante" : "Participant name"}</label>
+              <label className="label" htmlFor="avatar-name">{isItalian ? "Nome e parola di richiamo" : "Name and call phrase"}</label>
               <input id="avatar-name" className="input" value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={80} required />
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                {isItalian
+                  ? "Apparirà con questo nome e risponderà quando lo pronunci nel meeting."
+                  : "It appears with this name and responds when you say it in the meeting."}
+              </p>
             </div>
             <div>
               <label className="label" htmlFor="avatar-role">{isItalian ? "Ruolo mostrato" : "Displayed role"}</label>

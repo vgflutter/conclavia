@@ -36,8 +36,10 @@ function initialAppointment(key: string): AppointmentDraft {
 
 export function MeetingCreateForm({
   automation,
+  assistantName,
 }: {
   automation: MeetingAutomationPublicConfig;
+  assistantName: string;
 }) {
   const router = useRouter();
   const { locale } = useTranslations();
@@ -556,7 +558,7 @@ export function MeetingCreateForm({
               value={correctionPolicy}
               onChange={(event) => setCorrectionPolicy(event.target.value as CorrectionPolicy)}
             >
-              <option value="important_only">{isItalian ? "Intervieni solo se importante" : "Interrupt only when important"}</option>
+              <option value="important_only">{isItalian ? "Alza la mano solo se è importante" : "Raise its hand only when important"}</option>
               <option value="on_request">{isItalian ? "Correggi solo su richiesta" : "Correct only when asked"}</option>
               <option value="off">{isItalian ? "Non intervenire" : "Do not intervene"}</option>
             </select>
@@ -596,13 +598,29 @@ export function MeetingCreateForm({
           ) : null}
           <div className="rounded-xl bg-[#f3f7f4] p-4 sm:col-span-2">
             <p className="text-sm font-semibold text-[#204d36]">{isItalian ? "Comandi sempre attivi" : "Commands always enabled"}</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">{isItalian ? "“Conclavia, ricorda…”, “riepiloga”, “rispondi…” e “verifica…”." : "“Conclavia, remember…”, “summarize”, “answer…” and “verify…”."}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              {isItalian
+                ? `Pronuncia “${assistantName}” e chiedi di ricordare, riepilogare, rispondere o indicare il prossimo punto.`
+                : `Say “${assistantName}” and ask it to remember, summarize, answer or identify the next item.`}
+            </p>
           </div>
+          {correctionPolicy === "important_only" && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 sm:col-span-2">
+              <p className="text-sm font-semibold text-amber-950">
+                {isItalian ? "Non interrompe la conversazione" : "It does not interrupt the conversation"}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-amber-900/75">
+                {isItalian
+                  ? `Se ${assistantName} rileva un errore importante o possiede un’informazione davvero utile, alza la mano. Parla soltanto dopo che qualcuno gli dice “${assistantName}, vai pure”.`
+                  : `If ${assistantName} notices an important error or has genuinely useful information, it raises its hand. It speaks only after someone says “${assistantName}, go ahead”.`}
+              </p>
+            </div>
+          )}
         </div>
       </section>
 
       <section className="card p-5 sm:p-6">
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <div>
             <span className="flex size-8 items-center justify-center rounded-full bg-[#e4eee7] text-sm font-bold text-[#295c43]">1</span>
             <p className="mt-3 text-sm font-semibold">{isItalian ? "Entra dal link" : "Joins from the link"}</p>
@@ -612,16 +630,30 @@ export function MeetingCreateForm({
           </div>
           <div>
             <span className="flex size-8 items-center justify-center rounded-full bg-[#e4eee7] text-sm font-bold text-[#295c43]">2</span>
-            <p className="mt-3 text-sm font-semibold">{isItalian ? "Segue la conversazione" : "Follows the conversation"}</p>
+            <p className="mt-3 text-sm font-semibold">{isItalian ? "Risponde quando lo chiami" : "Answers when called"}</p>
             <p className="mt-1 text-xs leading-5 text-slate-500">
-              {isItalian ? "Ascolta, ricorda e risponde quando viene chiamato." : "It listens, remembers and responds when called."}
+              {isItalian ? `Pronuncia “${assistantName}” e fai una domanda: risponde usando il contesto disponibile.` : `Say “${assistantName}” and ask a question: it answers from the available context.`}
             </p>
           </div>
           <div>
             <span className="flex size-8 items-center justify-center rounded-full bg-[#e4eee7] text-sm font-bold text-[#295c43]">3</span>
-            <p className="mt-3 text-sm font-semibold">{isItalian ? "Mantiene il filo" : "Keeps the thread"}</p>
+            <p className="mt-3 text-sm font-semibold">{isItalian ? "Segue la scaletta" : "Follows the agenda"}</p>
             <p className="mt-1 text-xs leading-5 text-slate-500">
-              {isItalian ? "Porta decisioni e attività nel meeting successivo." : "It carries decisions and actions into the next meeting."}
+              {isItalian ? "Indica il prossimo punto e tiene distinti quelli obbligatori." : "It identifies the next item and tracks mandatory ones."}
+            </p>
+          </div>
+          <div>
+            <span className="flex size-8 items-center justify-center rounded-full bg-[#e4eee7] text-sm font-bold text-[#295c43]">4</span>
+            <p className="mt-3 text-sm font-semibold">{isItalian ? "Riepiloga e ricorda" : "Summarizes and remembers"}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              {isItalian ? "Conserva decisioni, attività e domande per gli incontri successivi." : "It carries decisions, actions and questions into future meetings."}
+            </p>
+          </div>
+          <div>
+            <span className="flex size-8 items-center justify-center rounded-full bg-[#e4eee7] text-sm font-bold text-[#295c43]">5</span>
+            <p className="mt-3 text-sm font-semibold">{isItalian ? "Chiede la parola" : "Requests the floor"}</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              {isItalian ? "Alza la mano per informazioni rilevanti o correzioni e aspetta il permesso." : "It raises its hand for relevant information or corrections and waits for permission."}
             </p>
           </div>
         </div>

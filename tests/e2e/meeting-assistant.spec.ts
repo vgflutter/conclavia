@@ -6,7 +6,11 @@ import {
   signAttendeeWebhookPayload,
   verifyAttendeeWebhook,
 } from "../../src/lib/attendee-webhook";
-import { parseMeetingVoiceCommand } from "../../src/lib/meeting-command";
+import {
+  detectElementaryArithmetic,
+  meetingPermissionDecision,
+  parseMeetingVoiceCommand,
+} from "../../src/lib/meeting-command";
 import { parseRecallOutputTranscript } from "../../src/lib/recall-transcript";
 
 const teamLink =
@@ -58,11 +62,17 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
   const rememberedFact = `La release ${marker} è fissata al 15 ottobre`;
   let meetingId: string | undefined;
   let outputToken: string | undefined;
+  let assistantName = "Conclavia";
   const browserErrors: string[] = [];
   page.on("pageerror", (error) => browserErrors.push(error.message));
 
   try {
     await test.step("crea il meeting dalla schermata cliente", async () => {
+      const avatarResponse = await request.get("/api/avatar");
+      const avatarPayload = (await avatarResponse.json()) as {
+        profile: { displayName: string };
+      };
+      assistantName = avatarPayload.profile.displayName;
       await page.goto("/meetings/new");
       await waitForClientReady(page);
       await expect(
@@ -91,9 +101,11 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
       const meetingResponse = await request.get(`/api/meetings/${meetingId}`);
       expect(meetingResponse.ok()).toBeTruthy();
       const meetingPayload = (await meetingResponse.json()) as {
-        meeting: { bot: { outputToken: string } };
+        meeting: { assistant: { wakeWord: string }; bot: { outputToken: string } };
       };
       outputToken = meetingPayload.meeting.bot.outputToken;
+      expect(meetingPayload.meeting.assistant.wakeWord).toBe(assistantName);
+      await expect(page.getByText(`“${assistantName}…”`)).toBeVisible();
       const outputResponse = await request.get(
         `/api/meeting-room/${outputToken}/state`,
       );
@@ -107,20 +119,14 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
       expect(protectedTranscript.status()).toBe(409);
     });
 
-    await test.step("alza la mano prima di una correzione", async () => {
+    await test.step("rende disponibile la superficie dell’avatar", async () => {
       expect(outputToken).toBeTruthy();
       const outputPage = await page.context().newPage();
       try {
         await outputPage.goto(`/meeting-room/${outputToken}`);
         await expect(outputPage.locator("svg[data-gesture='rest']")).toBeVisible();
 
-        const commandResponse = await request.post(`/api/meetings/${meetingId}/commands`, {
-          data: { kind: "correct", prompt: "Tre per tre fa dodici." },
-        });
-        expect(commandResponse.ok()).toBeTruthy();
-
-        await expect(outputPage.locator("svg[data-gesture='hand_raise']")).toBeVisible();
-        await expect(outputPage.getByText("CHIEDE LA PAROLA")).toBeVisible();
+        await expect(outputPage.getByText(assistantName, { exact: true })).toBeVisible();
       } finally {
         await outputPage.close();
       }
@@ -130,6 +136,7 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
       await page.getByRole("button", { name: "Coperto" }).click();
       await expect(page.getByText("1 di 1 punto completato")).toBeVisible();
 
+      const rememberStartedAt = Date.now();
       await page
         .getByPlaceholder("Es. Ricorda che il lancio è fissato al 15 ottobre")
         .fill(rememberedFact);
@@ -137,6 +144,12 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
       await expect(
         page.getByText("Ricevuto. L’ho salvato nella memoria del meeting."),
       ).toBeVisible();
+      expect(Date.now() - rememberStartedAt).toBeLessThan(2_500);
+
+      const agendaStartedAt = Date.now();
+      await page.getByRole("button", { name: "Scaletta" }).click();
+      await expect(page.getByText("La scaletta è completa: non ci sono altri punti aperti.")).toBeVisible();
+      expect(Date.now() - agendaStartedAt).toBeLessThan(2_500);
 
       await page.getByRole("button", { name: "Riepiloga" }).click();
       const summary = page.getByRole("article").filter({ hasText: "Riepiloga" }).first();
@@ -271,6 +284,20 @@ test("comandi vocali: riconosce italiano e inglese dopo la parola di attivazione
     .toEqual({ kind: "ask", prompt: "Mi senti?" });
   expect(parseMeetingVoiceCommand("Questa frase non è un comando", "Conclavia"))
     .toBeUndefined();
+  expect(parseMeetingVoiceCommand("Nora, qual è il prossimo punto?", "Nora"))
+    .toEqual({ kind: "agenda", prompt: "qual è il prossimo punto?" });
+  expect(parseMeetingVoiceCommand("Nora, scaletta", "Nora"))
+    .toEqual({ kind: "agenda", prompt: "" });
+  expect(parseMeetingVoiceCommand("Conclavia, riepiloga", "Nora"))
+    .toBeUndefined();
+});
+
+test("interventi: riconosce una correzione certa e attende il permesso rivolto al nome configurato", () => {
+  expect(detectElementaryArithmetic("Tre per tre fa dodici.")?.response).toContain("fa 9");
+  expect(detectElementaryArithmetic("Tre per tre fa nove.")).toBeUndefined();
+  expect(meetingPermissionDecision("Nora, vai pure.", "Nora")).toBe("grant");
+  expect(meetingPermissionDecision("Nora, non ora.", "Nora")).toBe("decline");
+  expect(meetingPermissionDecision("Conclavia, vai pure.", "Nora")).toBeUndefined();
 });
 
 test("servizio: espone uno stato di salute senza cache", async ({ request }) => {

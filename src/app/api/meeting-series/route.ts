@@ -5,6 +5,7 @@ import {
   meetingAssistantConfiguration,
   meetingDocumentData,
 } from "@/lib/meeting-factory";
+import { getAssistantProfile } from "@/lib/assistant-profile";
 import { scheduleMeetingBot } from "@/lib/meeting-bot-scheduler";
 import { validateMeetingSeriesInput } from "@/lib/meeting-series-validation";
 import { meetingSeriesKey } from "@/lib/meeting-validation";
@@ -54,6 +55,7 @@ export async function POST(request: Request) {
 
   try {
     await connectToDatabase();
+    const profile = await getAssistantProfile();
     const createdSeries = await MeetingSeriesModel.create({
       title: input.title,
       objective: input.objective,
@@ -61,7 +63,10 @@ export async function POST(request: Request) {
       language: input.language,
       autoJoin: input.autoJoin,
       agenda: input.agenda,
-      assistant: meetingAssistantConfiguration(input.correctionPolicy),
+      assistant: meetingAssistantConfiguration(
+        input.correctionPolicy,
+        profile.displayName,
+      ),
       voice: localVoiceConfiguration(),
     });
     series = createdSeries;
@@ -84,7 +89,12 @@ export async function POST(request: Request) {
           agenda: input.agenda,
           correctionPolicy: input.correctionPolicy,
         },
-        { seriesId: createdSeries._id, seriesLabel: input.title, seriesKey: key },
+        {
+          seriesId: createdSeries._id,
+          seriesLabel: input.title,
+          seriesKey: key,
+          assistantName: profile.displayName,
+        },
       ),
     );
     const meetings = await MeetingModel.insertMany(meetingDocuments);

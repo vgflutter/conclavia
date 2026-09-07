@@ -26,10 +26,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const payload = body as Record<string, unknown>;
   const kind = payload.kind as MeetingCommandKind;
   const prompt = typeof payload.prompt === "string" ? payload.prompt.trim().slice(0, 2_000) : "";
-  if (!["remember", "summary", "ask", "correct"].includes(kind)) {
+  if (!["remember", "summary", "agenda", "ask", "correct"].includes(kind)) {
     return NextResponse.json({ error: "Unknown command" }, { status: 400 });
   }
-  if (kind !== "summary" && !prompt) {
+  if (!["summary", "agenda"].includes(kind) && !prompt) {
     return NextResponse.json({ error: "This command requires text" }, { status: 400 });
   }
 

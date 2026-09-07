@@ -7,6 +7,10 @@ function iso(value: Date | undefined): string | undefined {
 }
 
 export function serializeMeeting(document: MeetingDocument): MeetingResponse {
+  const pendingIntervention = document.pendingIntervention &&
+    document.pendingIntervention.expiresAt.getTime() > Date.now()
+    ? document.pendingIntervention
+    : undefined;
   return {
     id: document._id.toString(),
     seriesId: document.seriesId?.toString(),
@@ -45,6 +49,18 @@ export function serializeMeeting(document: MeetingDocument): MeetingResponse {
       response: event.response,
       createdAt: event.createdAt.toISOString(),
     })),
+    pendingIntervention: pendingIntervention
+      ? {
+          id: pendingIntervention.id,
+          type: pendingIntervention.type,
+          sourceSpeaker: pendingIntervention.sourceSpeaker || undefined,
+          sourceStatement: pendingIntervention.sourceStatement,
+          reason: pendingIntervention.reason,
+          response: pendingIntervention.response,
+          createdAt: pendingIntervention.createdAt.toISOString(),
+          expiresAt: pendingIntervention.expiresAt.toISOString(),
+        }
+      : undefined,
     bot: {
       provider: document.bot.provider,
       accessMode: document.bot.accessMode || "anonymous_guest",

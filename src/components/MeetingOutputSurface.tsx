@@ -38,7 +38,8 @@ function performanceFor(kind: MeetingCommandKind): {
   mood: AvatarMood;
   gesture: AvatarGesture;
 } {
-  if (kind === "correct") return { mood: "focused", gesture: "hand_raise" };
+  if (kind === "correct") return { mood: "focused", gesture: "rest" };
+  if (kind === "inform") return { mood: "confident", gesture: "rest" };
   if (kind === "summary") return { mood: "confident", gesture: "rest" };
   return { mood: "friendly", gesture: "rest" };
 }
@@ -48,6 +49,7 @@ export function MeetingOutputSurface({
   title,
   initialStatus,
   initialCommandId,
+  initialInterventionId,
   displayName,
   role,
   locale,
@@ -61,6 +63,7 @@ export function MeetingOutputSurface({
   title: string;
   initialStatus: MeetingStatus;
   initialCommandId?: string;
+  initialInterventionId?: string;
   displayName: string;
   role: string;
   locale: Locale;
@@ -74,8 +77,11 @@ export function MeetingOutputSurface({
   const [viseme, setViseme] = useState<AvatarViseme>("rest");
   const [voiceLevel, setVoiceLevel] = useState(0);
   const [mood, setMood] = useState<AvatarMood>("friendly");
-  const [gesture, setGesture] = useState<AvatarGesture>("rest");
+  const [gesture, setGesture] = useState<AvatarGesture>(
+    initialInterventionId ? "hand_raise" : "rest",
+  );
   const [speaking, setSpeaking] = useState(false);
+  const pendingInterventionRef = useRef(initialInterventionId);
   const lastSpokenCommandRef = useRef(initialCommandId);
   const isPresent = ["joining", "waiting_room", "live"].includes(status);
   const isItalian = locale === "it";
@@ -90,12 +96,10 @@ export function MeetingOutputSurface({
     let transcriptSocket: WebSocket | undefined;
     let reconnectTimer: number | undefined;
     let utteranceTimer: number | undefined;
-    let performanceResetTimer: number | undefined;
     let bufferedTranscript: RecallOutputTranscript | undefined;
     let meetingAudioStream: MediaStream | undefined;
 
     function resetPerformance() {
-      if (performanceResetTimer) window.clearTimeout(performanceResetTimer);
       if (animation) window.cancelAnimationFrame(animation);
       audio?.pause();
       if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -110,16 +114,6 @@ export function MeetingOutputSurface({
       setSpeaking(false);
     }
 
-    async function holdRaisedHandBeforeSpeaking(run: number) {
-      await new Promise<void>((resolve) => {
-        window.requestAnimationFrame(() => {
-          window.requestAnimationFrame(() => resolve());
-        });
-      });
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 900));
-      return active && run === speechRun;
-    }
-
     async function speak(command: SpokenCommand) {
       speechRun += 1;
       const run = speechRun;
@@ -129,9 +123,6 @@ export function MeetingOutputSurface({
       setGesture(performance.gesture);
 
       try {
-        if (command.kind === "correct" && !(await holdRaisedHandBeforeSpeaking(run))) {
-          return;
-        }
         const result = await generateLocalSpeech({
           text: command.response,
           language: speechLanguage,
@@ -145,14 +136,7 @@ export function MeetingOutputSurface({
         audio = new Audio(audioUrl);
         audio.preload = "auto";
         audio.onended = () => {
-          if (command.kind !== "correct") {
-            resetPerformance();
-            return;
-          }
-          performanceResetTimer = window.setTimeout(() => {
-            performanceResetTimer = undefined;
-            resetPerformance();
-          }, 900);
+          resetPerformance();
         };
         await audio.play();
         if (!active || run !== speechRun) return;
@@ -185,9 +169,21 @@ export function MeetingOutputSurface({
         const payload = (await response.json()) as {
           status?: MeetingStatus;
           command?: SpokenCommand;
+          pendingIntervention?: { id: string };
         };
         if (!active || !response.ok || !payload.status) return;
         setStatus(payload.status);
+        const nextInterventionId = payload.pendingIntervention?.id;
+        if (nextInterventionId !== pendingInterventionRef.current) {
+          pendingInterventionRef.current = nextInterventionId;
+          if (nextInterventionId) {
+            setMood("focused");
+            setGesture("hand_raise");
+          } else {
+            setMood("friendly");
+            setGesture("rest");
+          }
+        }
         const latest = payload.command;
         if (latest && latest.id !== lastSpokenCommandRef.current) {
           lastSpokenCommandRef.current = latest.id;
@@ -283,7 +279,7 @@ export function MeetingOutputSurface({
       }
     }
     void pollMeeting();
-    const timer = window.setInterval(pollMeeting, 3_000);
+    const timer = window.setInterval(pollMeeting, 650);
 
     return () => {
       active = false;
@@ -291,7 +287,6 @@ export function MeetingOutputSurface({
       window.clearInterval(timer);
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
       if (utteranceTimer) window.clearTimeout(utteranceTimer);
-      if (performanceResetTimer) window.clearTimeout(performanceResetTimer);
       transcriptSocket?.close();
       meetingAudioStream?.getTracks().forEach((track) => track.stop());
       if (animation) window.cancelAnimationFrame(animation);

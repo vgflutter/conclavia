@@ -7,6 +7,7 @@ import type {
   MeetingBotConfiguration,
   MeetingCommandEvent,
   MeetingParticipantNote,
+  MeetingPendingIntervention,
   MeetingRecord,
   MeetingSummary,
   MeetingTranscriptSegment,
@@ -60,12 +61,30 @@ const commandEventSchema = new Schema<MeetingCommandEvent>(
     id: { type: String, required: true, trim: true },
     kind: {
       type: String,
-      enum: ["remember", "summary", "ask", "correct"],
+      enum: ["remember", "summary", "agenda", "ask", "correct", "inform"],
       required: true,
     },
     prompt: { type: String, trim: true, maxlength: 2_000 },
     response: { type: String, required: true, trim: true, maxlength: 8_000 },
     createdAt: { type: Date, required: true, default: Date.now },
+  },
+  { _id: false },
+);
+
+const pendingInterventionSchema = new Schema<MeetingPendingIntervention>(
+  {
+    id: { type: String, required: true, trim: true },
+    type: {
+      type: String,
+      enum: ["correction", "relevant_information"],
+      required: true,
+    },
+    sourceSpeaker: { type: String, trim: true, maxlength: 160 },
+    sourceStatement: { type: String, required: true, trim: true, maxlength: 2_000 },
+    reason: { type: String, required: true, trim: true, maxlength: 1_000 },
+    response: { type: String, required: true, trim: true, maxlength: 2_000 },
+    createdAt: { type: Date, required: true, default: Date.now },
+    expiresAt: { type: Date, required: true },
   },
   { _id: false },
 );
@@ -177,6 +196,7 @@ const meetingSchema = new Schema<MeetingRecord>(
     agenda: { type: [agendaItemSchema], required: true, default: [] },
     assistant: { type: assistantSchema, required: true, default: () => ({}) },
     commandHistory: { type: [commandEventSchema], required: true, default: [] },
+    pendingIntervention: { type: pendingInterventionSchema, required: false },
     bot: { type: botSchema, required: true },
     voice: { type: voiceSchema, required: true },
     retention: {

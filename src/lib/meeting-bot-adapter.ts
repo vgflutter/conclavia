@@ -161,7 +161,7 @@ class RecallMeetingBotAdapter implements MeetingBotAdapter {
         method: "POST",
         body: JSON.stringify({
           meeting_url: meeting.meetingUrl,
-          bot_name: this.config.displayName,
+          bot_name: meeting.assistant.wakeWord || this.config.displayName,
           ...(joinAt ? { join_at: joinAt } : {}),
           metadata: {
             conclavia_meeting_id: meeting.id,
@@ -331,7 +331,7 @@ class AttendeeMeetingBotAdapter implements MeetingBotAdapter {
         method: "POST",
         body: JSON.stringify({
           meeting_url: meeting.meetingUrl,
-          bot_name: this.config.displayName,
+          bot_name: meeting.assistant.wakeWord || this.config.displayName,
           ...(joinAt ? { join_at: joinAt } : {}),
           deduplication_key: `conclavia-${meeting.id}`,
           metadata: {

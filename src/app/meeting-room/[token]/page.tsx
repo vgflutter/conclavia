@@ -29,6 +29,7 @@ export default async function MeetingRoomPage({
       title={meeting.title}
       initialStatus={meeting.status}
       initialCommandId={meeting.commandHistory.at(-1)?.id}
+      initialInterventionId={meeting.pendingIntervention?.id}
       displayName={profile.displayName}
       role={profile.role}
       locale={locale}

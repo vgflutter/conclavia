@@ -26,11 +26,11 @@ type SpeechLanguage = "it" | "en";
 
 const samples = {
   it: [
-    "Buongiorno, sono Conclavia. Terrò il filo del meeting e dei prossimi passi.",
+    "Buongiorno, sono {name}. Terrò il filo del meeting e dei prossimi passi.",
     "Prima di proseguire, vorrei verificare un punto importante della scaletta.",
   ],
   en: [
-    "Good morning, I am Conclavia. I will keep track of the meeting and next steps.",
+    "Good morning, I am {name}. I will keep track of the meeting and next steps.",
     "Before we continue, I would like to verify an important point on the agenda.",
   ],
 } satisfies Record<SpeechLanguage, string[]>;
@@ -51,7 +51,8 @@ export function AvatarTestStudio({
 }) {
   const isItalian = locale === "it";
   const [language, setLanguage] = useState<SpeechLanguage>(locale);
-  const [text, setText] = useState(samples[locale][0]);
+  const sampleText = (item: string) => item.replace("{name}", profile.displayName);
+  const [text, setText] = useState(sampleText(samples[locale][0]));
   const [viseme, setViseme] = useState<AvatarViseme>("rest");
   const [voiceLevel, setVoiceLevel] = useState(0);
   const [mood, setMood] = useState<AvatarMood>("friendly");
@@ -164,7 +165,7 @@ export function AvatarTestStudio({
   function changeLanguage(nextLanguage: SpeechLanguage) {
     stopPreview();
     setLanguage(nextLanguage);
-    setText(samples[nextLanguage][0]);
+    setText(sampleText(samples[nextLanguage][0]));
     setSpeech(undefined);
     setSpeechKey("");
   }
@@ -197,7 +198,7 @@ export function AvatarTestStudio({
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_38%,rgba(67,161,113,0.28),transparent_34%),radial-gradient(circle_at_12%_46%,rgba(209,105,54,0.15),transparent_25%),linear-gradient(145deg,#111c17,#050806_65%,#0c1711)]" />
         <div className="absolute inset-0 opacity-25 [background-image:linear-gradient(rgba(255,255,255,.05)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.05)_1px,transparent_1px)] [background-size:4rem_4rem]" />
         <div className="absolute inset-x-0 top-0 z-10 flex min-h-14 items-center justify-between border-b border-white/10 bg-black/20 px-5 text-[10px] font-bold uppercase tracking-[0.17em] text-white/45 sm:px-7 sm:text-xs">
-          <span>Conclavia · {isItalian ? "Collega digitale" : "Digital colleague"}</span>
+          <span>{profile.displayName} · {isItalian ? "Collega digitale" : "Digital colleague"}</span>
           <span className={previewState === "speaking" ? "text-[#ffc6ac]" : "text-[#d4e8cb]"}>
             <i className={`mr-2 inline-block size-2 rounded-full ${previewState === "speaking" ? "bg-[#f17747] shadow-[0_0_18px_#f17747]" : isBusy ? "animate-pulse bg-[#e5b757]" : "bg-[#8c9890]"}`} />
             <span aria-live="polite">{statusLabel}</span>
@@ -255,7 +256,9 @@ export function AvatarTestStudio({
         </div>
 
         <div className="mt-4 space-y-2">
-          {samples[language].map((sample, index) => (
+          {samples[language].map((sampleTemplate, index) => {
+            const sample = sampleText(sampleTemplate);
+            return (
             <button
               key={sample}
               type="button"
@@ -268,7 +271,8 @@ export function AvatarTestStudio({
               <strong className="mr-2">{index + 1}</strong>
               {sample}
             </button>
-          ))}
+            );
+          })}
         </div>
 
         <label className="label mt-5" htmlFor="avatar-test-text">

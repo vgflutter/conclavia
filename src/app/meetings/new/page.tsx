@@ -4,6 +4,7 @@ import Link from "next/link";
 import { MeetingCreateForm } from "@/components/MeetingCreateForm";
 import { getRequestLocale } from "@/i18n/server";
 import { getMeetingAutomationPublicConfig } from "@/lib/meeting-bot-config";
+import { getAssistantProfile } from "@/lib/assistant-profile";
 
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await getRequestLocale();
@@ -14,6 +15,7 @@ export default async function NewMeetingPage() {
   const locale = await getRequestLocale();
   const isItalian = locale === "it";
   const automation = getMeetingAutomationPublicConfig();
+  const profile = await getAssistantProfile();
 
   return (
     <div className="container-page py-10 sm:py-14">
@@ -37,7 +39,7 @@ export default async function NewMeetingPage() {
             : "Choose a single meeting or a series with multiple dates and links. Appointments in a series automatically share memory."}
         </p>
       </div>
-      <MeetingCreateForm automation={automation} />
+      <MeetingCreateForm automation={automation} assistantName={profile.displayName} />
     </div>
   );
 }
