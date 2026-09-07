@@ -249,7 +249,7 @@ export function AvatarTestStudio({
                 aria-pressed={language === item}
                 className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${language === item ? "border-[#6e9a7d] bg-[#e9f2ec] text-[#204d36]" : "border-slate-200 text-slate-500 hover:bg-slate-50"}`}
               >
-                {item === "it" ? "Italiano" : "English"}
+                {item === "it" ? (isItalian ? "Italiano" : "Italian") : "English"}
               </button>
             ))}
           </div>
