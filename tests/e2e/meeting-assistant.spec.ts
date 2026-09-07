@@ -247,6 +247,88 @@ test("serie: due appuntamenti condividono la memoria", async ({ page, request })
   }
 });
 
+test("dashboard: limita il centro attività e apre la vista completa", async ({
+  page,
+  request,
+}) => {
+  await useItalian(page);
+  const marker = Date.now().toString(36);
+  const meetingIds: string[] = [];
+  const titles: string[] = [];
+
+  try {
+    for (let index = 0; index < 4; index += 1) {
+      const title = `E2E Attività ${marker}-${index + 1}`;
+      const createResponse = await request.post("/api/meetings", {
+        data: {
+          title,
+          meetingUrl: `${teamLink}&dashboard=${marker}-${index + 1}`,
+          scheduledStart: futureLocalDateTime(8 + index),
+          durationMinutes: 60,
+          timezone: "Europe/Rome",
+          objective: `Verificare la coda attività ${marker}`,
+          language: "auto",
+          autoJoin: false,
+          agenda: [{ title: "Controllare il riepilogo", mandatory: true }],
+          correctionPolicy: "important_only",
+        },
+      });
+      expect(createResponse.status()).toBe(201);
+      const createPayload = (await createResponse.json()) as {
+        meeting: { id: string; bot: { outputToken: string } };
+      };
+      const meetingId = createPayload.meeting.id;
+      meetingIds.push(meetingId);
+      titles.push(title);
+
+      const statusResponse = await request.post(
+        `/api/webhooks/attendee?meeting_token=${encodeURIComponent(createPayload.meeting.bot.outputToken)}`,
+        {
+          data: {
+            idempotency_key: `dashboard-${marker}-${index + 1}`,
+            bot_id: `bot_dashboard_${marker}_${index + 1}`,
+            bot_metadata: { conclavia_meeting_id: meetingId },
+            trigger: "bot.state_change",
+            data: {
+              new_state: "post_processing",
+              created_at: new Date(Date.now() + index * 1_000).toISOString(),
+            },
+          },
+        },
+      );
+      expect(statusResponse.ok()).toBeTruthy();
+    }
+
+    await page.goto("/meetings");
+    const activityCenter = page.locator("section").filter({
+      has: page.getByRole("heading", { name: "Da gestire" }),
+    });
+    await expect(activityCenter.locator('a[href^="/meetings/"]')).toHaveCount(3);
+    await activityCenter.getByRole("link", { name: "Vedi tutti" }).click();
+    await page.waitForURL(/\/meetings\?view=attention/);
+    await expect(page.getByRole("link", { name: "Torna alla panoramica" })).toBeVisible();
+    for (const title of titles) {
+      await expect(page.getByText(title, { exact: true })).toBeVisible();
+    }
+    await expect(page.getByRole("heading", { name: "Prossimi meeting" })).toHaveCount(0);
+  } finally {
+    await Promise.all(
+      meetingIds.map(async (meetingId) => {
+        await request.post(`/api/meetings/${meetingId}/outcome`, {
+          data: {
+            overview: "E2E dashboard cleanup",
+            rememberedFacts: [],
+            decisions: [],
+            actionItems: [],
+            openQuestions: [],
+          },
+        });
+        await safeDelete(request, "meetings", meetingId);
+      }),
+    );
+  }
+});
+
 test("l'avatar si prova senza creare un meeting", async ({ page }) => {
   await useItalian(page);
   await page.goto("/avatar");

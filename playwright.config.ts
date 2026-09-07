@@ -16,7 +16,7 @@ export default defineConfig({
   },
   webServer: {
     command:
-      "NEXT_DIST_DIR=.next-e2e MEETING_BOT_PROVIDER=preview MEETING_AI_ENABLED=false npm run dev -- --port 3101",
+      "NEXT_DIST_DIR=.next-e2e MEETING_BOT_PROVIDER=preview MEETING_AI_ENABLED=false ATTENDEE_WEBHOOK_SECRET= npm run dev -- --port 3101",
     url: "http://127.0.0.1:3101/api/health",
     reuseExistingServer: false,
     timeout: 120_000,

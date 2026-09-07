@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import type { FilterQuery } from "mongoose";
 
 import { getRequestLocale } from "@/i18n/server";
 import type { Locale } from "@/i18n/locale";
@@ -13,9 +14,46 @@ import { serializeMeeting } from "@/lib/serialize-meeting";
 import { serializeMeetingSeries } from "@/lib/serialize-meeting-series";
 import { MeetingModel } from "@/models/Meeting";
 import { MeetingSeriesModel } from "@/models/MeetingSeries";
-import type { MeetingResponse, MeetingSeriesResponse } from "@/types/meeting";
+import type {
+  MeetingRecord,
+  MeetingResponse,
+  MeetingSeriesResponse,
+  MeetingStatus,
+} from "@/types/meeting";
 
 export const dynamic = "force-dynamic";
+
+const DASHBOARD_ATTENTION_LIMIT = 3;
+const DASHBOARD_MEETING_LIMIT = 6;
+const DASHBOARD_SERIES_LIMIT = 4;
+const PAGE_SIZE = 20;
+const attentionStatuses: MeetingStatus[] = [
+  "joining",
+  "waiting_room",
+  "live",
+  "processing",
+  "failed",
+];
+
+type MeetingView = "attention" | "series" | "upcoming" | "history";
+
+function firstSearchParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function selectedMeetingView(value: string | undefined): MeetingView | undefined {
+  return value === "attention" ||
+    value === "series" ||
+    value === "upcoming" ||
+    value === "history"
+    ? value
+    : undefined;
+}
+
+function selectedPage(value: string | undefined): number {
+  const page = Number.parseInt(value || "1", 10);
+  return Number.isSafeInteger(page) && page > 0 ? page : 1;
+}
 
 export async function generateMetadata(): Promise<Metadata> {
   const locale = await getRequestLocale();
@@ -97,31 +135,208 @@ function MeetingCard({ meeting, locale }: { meeting: MeetingResponse; locale: Lo
   );
 }
 
-function MeetingSection({
+function attentionReason(locale: Locale, meeting: MeetingResponse): string {
+  const isItalian = locale === "it";
+  if (meeting.status === "joining") {
+    return isItalian ? "Sta entrando nel meeting" : "Joining the meeting";
+  }
+  if (meeting.status === "waiting_room") {
+    return isItalian ? "Ammettilo dalla sala d’attesa" : "Admit it from the waiting room";
+  }
+  if (meeting.status === "live") {
+    return isItalian ? "Meeting in corso" : "Meeting in progress";
+  }
+  if (meeting.status === "processing") {
+    return isItalian ? "Rivedi e salva il riepilogo" : "Review and save the summary";
+  }
+  return isItalian ? "Controlla l’ingresso al meeting" : "Check the meeting entry";
+}
+
+function CollectionHeading({
   title,
-  empty,
-  meetings,
+  description,
+  total,
   locale,
+  view,
+  expanded,
+  hasMore,
 }: {
   title: string;
+  description?: string;
+  total: number;
+  locale: Locale;
+  view: MeetingView;
+  expanded: boolean;
+  hasMore: boolean;
+}) {
+  const isItalian = locale === "it";
+
+  return (
+    <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
+        {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
+      </div>
+      <div className="flex items-center gap-3">
+        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-500">
+          {total}
+        </span>
+        {expanded ? (
+          <Link href="/meetings" className="text-sm font-semibold text-[#295c43] hover:underline">
+            {isItalian ? "Torna alla panoramica" : "Back to overview"}
+          </Link>
+        ) : hasMore ? (
+          <Link href={`/meetings?view=${view}`} className="text-sm font-semibold text-[#295c43] hover:underline">
+            {isItalian ? "Vedi tutti" : "View all"}
+          </Link>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function Pagination({
+  view,
+  page,
+  total,
+  locale,
+}: {
+  view: MeetingView;
+  page: number;
+  total: number;
+  locale: Locale;
+}) {
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (pages <= 1) return null;
+  const isItalian = locale === "it";
+
+  return (
+    <nav aria-label={isItalian ? "Paginazione" : "Pagination"} className="mt-5 flex items-center justify-between gap-4">
+      {page > 1 ? (
+        <Link href={`/meetings?view=${view}&page=${page - 1}`} className="button-secondary">
+          ← {isItalian ? "Precedenti" : "Previous"}
+        </Link>
+      ) : <span />}
+      <span className="text-sm text-slate-500">
+        {isItalian ? `Pagina ${page} di ${pages}` : `Page ${page} of ${pages}`}
+      </span>
+      {page < pages ? (
+        <Link href={`/meetings?view=${view}&page=${page + 1}`} className="button-secondary">
+          {isItalian ? "Successivi" : "Next"} →
+        </Link>
+      ) : <span />}
+    </nav>
+  );
+}
+
+function AttentionSection({
+  meetings,
+  total,
+  locale,
+  expanded,
+  page,
+}: {
+  meetings: MeetingResponse[];
+  total: number;
+  locale: Locale;
+  expanded: boolean;
+  page: number;
+}) {
+  const isItalian = locale === "it";
+
+  return (
+    <section>
+      <CollectionHeading
+        title={isItalian ? "Da gestire" : "Needs action"}
+        description={isItalian
+          ? "Solo gli appuntamenti per cui serve una tua azione."
+          : "Only appointments that currently need your action."}
+        total={total}
+        locale={locale}
+        view="attention"
+        expanded={expanded}
+        hasMore={!expanded && total > DASHBOARD_ATTENTION_LIMIT}
+      />
+      <div className="card divide-y divide-slate-100 overflow-hidden">
+        {meetings.map((meeting) => (
+          <Link
+            key={meeting.id}
+            href={`/meetings/${meeting.id}`}
+            className="group grid gap-3 px-5 py-4 transition hover:bg-[#f7faf7] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-6"
+          >
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusClass(meeting.status)}`}>
+                  {meetingStatusLabel(locale, meeting.status)}
+                </span>
+                {meeting.seriesLabel && (
+                  <span className="truncate text-xs font-medium text-slate-400">
+                    {meeting.seriesLabel}
+                  </span>
+                )}
+              </div>
+              <h3 className="mt-2 truncate text-base font-semibold group-hover:text-[#295c43]">
+                {meeting.title}
+              </h3>
+              <p className="mt-1 text-sm text-slate-500">
+                {formatMeetingDate(meeting.scheduledStart, locale, meeting.timezone)}
+              </p>
+            </div>
+            <div className="flex items-center justify-between gap-4 sm:justify-end">
+              <span className="text-sm font-medium text-amber-800">
+                {attentionReason(locale, meeting)}
+              </span>
+              <span className="text-lg text-slate-300 transition group-hover:translate-x-1 group-hover:text-[#295c43]">→</span>
+            </div>
+          </Link>
+        ))}
+      </div>
+      {expanded && <Pagination view="attention" page={page} total={total} locale={locale} />}
+    </section>
+  );
+}
+
+function MeetingSection({
+  title,
+  description,
+  empty,
+  meetings,
+  total,
+  locale,
+  view,
+  expanded,
+  page,
+}: {
+  title: string;
+  description?: string;
   empty: string;
   meetings: MeetingResponse[];
+  total: number;
   locale: Locale;
+  view: Extract<MeetingView, "upcoming" | "history">;
+  expanded: boolean;
+  page: number;
 }) {
   return (
     <section>
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
-        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-500">
-          {meetings.length}
-        </span>
-      </div>
+      <CollectionHeading
+        title={title}
+        description={description}
+        total={total}
+        locale={locale}
+        view={view}
+        expanded={expanded}
+        hasMore={!expanded && total > DASHBOARD_MEETING_LIMIT}
+      />
       {meetings.length ? (
-        <div className="grid gap-4 md:grid-cols-2">
-          {meetings.map((meeting) => (
-            <MeetingCard key={meeting.id} meeting={meeting} locale={locale} />
-          ))}
-        </div>
+        <>
+          <div className="grid gap-4 md:grid-cols-2">
+            {meetings.map((meeting) => (
+              <MeetingCard key={meeting.id} meeting={meeting} locale={locale} />
+            ))}
+          </div>
+          {expanded && <Pagination view={view} page={page} total={total} locale={locale} />}
+        </>
       ) : (
         <div className="card border-dashed p-6 text-sm leading-6 text-slate-500">{empty}</div>
       )}
@@ -206,28 +421,86 @@ function MeetingSeriesCard({
   );
 }
 
-export default async function MeetingsPage() {
-  const locale = await getRequestLocale();
+export default async function MeetingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    view?: string | string[];
+    page?: string | string[];
+  }>;
+}) {
+  const [locale, query] = await Promise.all([getRequestLocale(), searchParams]);
   const isItalian = locale === "it";
-  await connectToDatabase();
-  const [documents, seriesDocuments] = await Promise.all([
-    MeetingModel.find().sort({ scheduledStart: 1 }).exec(),
-    MeetingSeriesModel.find().sort({ updatedAt: -1 }).exec(),
-  ]);
-  const meetings = documents.map(serializeMeeting);
-  const series = seriesDocuments.map(serializeMeetingSeries);
-  const standaloneMeetings = meetings.filter((meeting) => !meeting.seriesId);
+  const view = selectedMeetingView(firstSearchParam(query.view));
+  const page = selectedPage(firstSearchParam(query.page));
+  const expandedOffset = (page - 1) * PAGE_SIZE;
+  const standaloneFilter: FilterQuery<MeetingRecord> = {
+    $or: [
+      { seriesId: { $exists: false } },
+      { seriesId: null },
+    ],
+  };
+  const attentionFilter: FilterQuery<MeetingRecord> = {
+    status: { $in: attentionStatuses },
+  };
+  const upcomingFilter: FilterQuery<MeetingRecord> = {
+    $and: [standaloneFilter, { status: "scheduled" }],
+  };
+  const historyFilter: FilterQuery<MeetingRecord> = {
+    $and: [standaloneFilter, { status: { $in: ["completed", "cancelled"] } }],
+  };
 
-  const active = standaloneMeetings.filter((meeting) =>
-    ["joining", "waiting_room", "live", "processing", "failed"].includes(meeting.status),
-  );
-  const upcoming = standaloneMeetings.filter((meeting) => meeting.status === "scheduled");
-  const past = standaloneMeetings
-    .filter((meeting) => ["completed", "cancelled"].includes(meeting.status))
-    .sort(
-      (left, right) =>
-        new Date(right.scheduledStart).getTime() - new Date(left.scheduledStart).getTime(),
-    );
+  await connectToDatabase();
+  const [
+    attentionDocuments,
+    attentionTotal,
+    seriesDocuments,
+    seriesTotal,
+    upcomingDocuments,
+    upcomingTotal,
+    historyDocuments,
+    historyTotal,
+    standaloneTotal,
+  ] = await Promise.all([
+    MeetingModel.find(attentionFilter)
+      .sort({ updatedAt: -1 })
+      .skip(view === "attention" ? expandedOffset : 0)
+      .limit(view === "attention" ? PAGE_SIZE : DASHBOARD_ATTENTION_LIMIT)
+      .exec(),
+    MeetingModel.countDocuments(attentionFilter).exec(),
+    MeetingSeriesModel.find()
+      .sort({ updatedAt: -1 })
+      .skip(view === "series" ? expandedOffset : 0)
+      .limit(view === "series" ? PAGE_SIZE : DASHBOARD_SERIES_LIMIT)
+      .exec(),
+    MeetingSeriesModel.countDocuments().exec(),
+    MeetingModel.find(upcomingFilter)
+      .sort({ scheduledStart: 1 })
+      .skip(view === "upcoming" ? expandedOffset : 0)
+      .limit(view === "upcoming" ? PAGE_SIZE : DASHBOARD_MEETING_LIMIT)
+      .exec(),
+    MeetingModel.countDocuments(upcomingFilter).exec(),
+    MeetingModel.find(historyFilter)
+      .sort({ scheduledStart: -1 })
+      .skip(view === "history" ? expandedOffset : 0)
+      .limit(view === "history" ? PAGE_SIZE : DASHBOARD_MEETING_LIMIT)
+      .exec(),
+    MeetingModel.countDocuments(historyFilter).exec(),
+    MeetingModel.countDocuments(standaloneFilter).exec(),
+  ]);
+  const seriesIds = seriesDocuments.map((document) => document._id);
+  const seriesMeetingDocuments = seriesIds.length
+    ? await MeetingModel.find({ seriesId: { $in: seriesIds } })
+        .sort({ scheduledStart: 1 })
+        .exec()
+    : [];
+
+  const attention = attentionDocuments.map(serializeMeeting);
+  const series = seriesDocuments.map(serializeMeetingSeries);
+  const seriesMeetings = seriesMeetingDocuments.map(serializeMeeting);
+  const upcoming = upcomingDocuments.map(serializeMeeting);
+  const history = historyDocuments.map(serializeMeeting);
+  const contextTotal = seriesTotal + standaloneTotal;
 
   return (
     <div className="container-page py-10 sm:py-14">
@@ -275,12 +548,12 @@ export default async function MeetingsPage() {
             {isItalian ? "Memoria" : "Memory"}
           </p>
           <p className="mt-2 text-sm font-semibold">
-            {series.length + standaloneMeetings.length}{" "}
+            {contextTotal}{" "}
             {isItalian
-              ? series.length + standaloneMeetings.length === 1
+              ? contextTotal === 1
                 ? "contesto"
                 : "contesti"
-              : series.length + standaloneMeetings.length === 1
+              : contextTotal === 1
                 ? "context"
                 : "contexts"}
           </p>
@@ -289,59 +562,92 @@ export default async function MeetingsPage() {
       </section>
 
       <div className="space-y-10">
-        {series.length > 0 && (
+        {!view && attentionTotal > 0 && (
+          <AttentionSection
+            meetings={attention}
+            total={attentionTotal}
+            locale={locale}
+            expanded={false}
+            page={1}
+          />
+        )}
+
+        {view === "attention" && (
+          <AttentionSection
+            meetings={attention}
+            total={attentionTotal}
+            locale={locale}
+            expanded
+            page={page}
+          />
+        )}
+
+        {(!view || view === "series") && seriesTotal > 0 && (
           <section>
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-semibold tracking-tight">
-                  {isItalian ? "Serie di meeting" : "Meeting series"}
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {isItalian ? "Più appuntamenti che condividono la stessa memoria." : "Several appointments sharing one memory."}
-                </p>
-              </div>
-              <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-500">{series.length}</span>
-            </div>
+            <CollectionHeading
+              title={isItalian ? "Serie di meeting" : "Meeting series"}
+              description={isItalian
+                ? "Più appuntamenti che condividono la stessa memoria."
+                : "Several appointments sharing one memory."}
+              total={seriesTotal}
+              locale={locale}
+              view="series"
+              expanded={view === "series"}
+              hasMore={!view && seriesTotal > DASHBOARD_SERIES_LIMIT}
+            />
             <div className="grid gap-4 md:grid-cols-2">
               {series.map((item) => (
                 <MeetingSeriesCard
                   key={item.id}
                   series={item}
-                  meetings={meetings.filter((meeting) => meeting.seriesId === item.id)}
+                  meetings={seriesMeetings.filter((meeting) => meeting.seriesId === item.id)}
                   locale={locale}
                 />
               ))}
             </div>
+            {view === "series" && (
+              <Pagination view="series" page={page} total={seriesTotal} locale={locale} />
+            )}
           </section>
         )}
-        {active.length > 0 && (
+
+        {(!view || view === "upcoming") && (
           <MeetingSection
-            title={isItalian ? "Richiedono attenzione" : "Needs attention"}
-            empty=""
-            meetings={active}
+            title={isItalian ? "Prossimi meeting" : "Upcoming meetings"}
+            description={isItalian
+              ? "Gli appuntamenti singoli già programmati."
+              : "Scheduled standalone appointments."}
+            empty={
+              isItalian
+                ? seriesTotal
+                  ? "Non ci sono meeting singoli programmati."
+                  : "Non hai ancora programmato meeting. Puoi creare un incontro singolo oppure una serie."
+                : seriesTotal
+                  ? "No single meetings are scheduled."
+                  : "No meetings are scheduled yet. Create a single meeting or a series."
+            }
+            meetings={upcoming}
+            total={upcomingTotal}
             locale={locale}
+            view="upcoming"
+            expanded={view === "upcoming"}
+            page={page}
           />
         )}
-        <MeetingSection
-          title={isItalian ? "Meeting singoli" : "Single meetings"}
-          empty={
-            isItalian
-              ? series.length
-                ? "Non ci sono meeting singoli programmati."
-                : "Non hai ancora programmato meeting. Puoi creare un incontro singolo oppure una serie."
-              : series.length
-                ? "No single meetings are scheduled."
-                : "No meetings are scheduled yet. Create a single meeting or a series."
-          }
-          meetings={upcoming}
-          locale={locale}
-        />
-        {past.length > 0 && (
+
+        {(!view || view === "history") && historyTotal > 0 && (
           <MeetingSection
             title={isItalian ? "Storico" : "History"}
+            description={isItalian
+              ? "Meeting conclusi e annullati, dal più recente."
+              : "Completed and cancelled meetings, newest first."}
             empty=""
-            meetings={past}
+            meetings={history}
+            total={historyTotal}
             locale={locale}
+            view="history"
+            expanded={view === "history"}
+            page={page}
           />
         )}
       </div>

@@ -135,6 +135,7 @@ export async function cancelMeetingBot(meeting: MeetingDocument): Promise<void> 
     !meeting.bot.externalBotId ||
     !["recall", "attendee"].includes(meeting.bot.provider)
   ) return;
+  if (["not_scheduled", "left", "failed"].includes(meeting.bot.status)) return;
 
   const adapter = getMeetingBotAdapter(meeting.bot.provider);
   if (!adapter.live) {
