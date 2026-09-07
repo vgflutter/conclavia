@@ -65,6 +65,7 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
   let meetingId: string | undefined;
   let outputToken: string | undefined;
   let assistantName = "Conclavia";
+  let assistantRole = "Collega digitale";
   const browserErrors: string[] = [];
   page.on("pageerror", (error) => browserErrors.push(error.message));
 
@@ -72,9 +73,10 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
     await test.step("crea il meeting dalla schermata cliente", async () => {
       const avatarResponse = await request.get("/api/avatar");
       const avatarPayload = (await avatarResponse.json()) as {
-        profile: { displayName: string };
+        profile: { displayName: string; role: string };
       };
       assistantName = avatarPayload.profile.displayName;
+      assistantRole = avatarPayload.profile.role;
       await page.goto("/meetings/new");
       await waitForClientReady(page);
       await expect(
@@ -146,8 +148,20 @@ test("meeting singolo: creazione, comandi, memoria e cancellazione", async ({
       try {
         await outputPage.goto(`/meeting-room/${outputToken}`);
         await expect(outputPage.locator("svg[data-gesture='rest']")).toBeVisible();
-
         await expect(outputPage.getByText(assistantName, { exact: true })).toBeVisible();
+        await expect(outputPage.getByText(assistantRole, { exact: true })).toBeVisible();
+        await expect(outputPage.getByText("PRONTO", { exact: true })).toBeVisible();
+        await expect(outputPage.getByText(title, { exact: true })).toHaveCount(0);
+        await expect(outputPage.locator("header")).toHaveCount(0);
+
+        const identityBox = await outputPage.getByTestId("meeting-identity").boundingBox();
+        const statusBox = await outputPage.getByTestId("meeting-status-badge").boundingBox();
+        expect(identityBox).not.toBeNull();
+        expect(statusBox).not.toBeNull();
+        expect(identityBox!.width).toBeLessThan(280);
+        expect(identityBox!.height).toBeLessThan(100);
+        expect(statusBox!.x).toBeGreaterThan(1_000);
+        expect(statusBox!.y).toBeLessThan(80);
       } finally {
         await outputPage.close();
       }
@@ -356,6 +370,7 @@ test("dashboard: limita il centro attività e apre la vista completa", async ({
 });
 
 test("l'avatar si prova senza creare un meeting", async ({ page }) => {
+  test.slow();
   await useItalian(page);
   await page.goto("/avatar");
   await page.getByRole("link", { name: "Prova avatar" }).click();
@@ -377,6 +392,24 @@ test("l'avatar si prova senza creare un meeting", async ({ page }) => {
 
   await page.getByTestId("hand-raise-toggle").click();
   await expect(page.locator("svg[data-gesture='rest']")).toBeVisible();
+
+  await test.step("genera e riproduce la voce italiana sul dispositivo", async () => {
+    await page.getByLabel("Frase da provare").fill("Ciao, sono il collega digitale.");
+    await page.getByRole("button", { name: "Ascolta la voce" }).click();
+    await expect(page.locator('[data-preview-state="speaking"]')).toBeVisible({ timeout: 180_000 });
+    await expect(page.getByText("IN VOCE", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Ferma la voce" }).click();
+    await expect(page.locator('[data-preview-state="ready"]')).toBeVisible();
+  });
+
+  await test.step("genera e riproduce anche la voce inglese", async () => {
+    await page.getByRole("button", { name: "English" }).click();
+    await page.getByLabel("Frase da provare").fill("Hello, I am your digital colleague.");
+    await page.getByRole("button", { name: "Ascolta la voce" }).click();
+    await expect(page.locator('[data-preview-state="speaking"]')).toBeVisible({ timeout: 180_000 });
+    await page.getByRole("button", { name: "Ferma la voce" }).click();
+    await expect(page.locator('[data-preview-state="ready"]')).toBeVisible();
+  });
 });
 
 test("comandi vocali: riconosce italiano e inglese dopo la parola di attivazione", () => {

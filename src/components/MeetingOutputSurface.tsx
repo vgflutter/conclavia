@@ -321,7 +321,7 @@ export function MeetingOutputSurface({
     <div className={styles.output} style={stageStyle} data-live={isPresent} data-speaking={speaking}>
       <div className={styles.grid} />
       <div className={styles.glow} />
-      <div className={styles.statusBadge}>
+      <div className={styles.statusBadge} data-testid="meeting-status-badge">
         <i /> {statusLabel}
       </div>
       <div className={styles.avatarWrap}>
@@ -333,7 +333,7 @@ export function MeetingOutputSurface({
           ariaLabel={isItalian ? "Avatar del collega digitale in abito business" : "Business-style digital colleague avatar"}
         />
       </div>
-      <div className={styles.lowerThird}>
+      <div className={styles.lowerThird} data-testid="meeting-identity">
         <span>{displayName}</span>
         <strong>{role}</strong>
       </div>
