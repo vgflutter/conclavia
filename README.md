@@ -156,11 +156,12 @@ The organizer's Teams policy must allow anonymous guests and captions. If compan
 npm run verify
 ```
 
-This runs ESLint, TypeScript, a production build, and ten Playwright scenarios covering:
+This runs ESLint, TypeScript, a production build, and eleven Playwright scenarios covering:
 
 - single-meeting creation, agenda, commands, memory, and cleanup;
 - series creation and continuity across two appointments;
 - dashboard filtering, search, and large activity queues;
+- overdue meeting classification and recovery guidance;
 - mobile navigation and horizontal-overflow checks on primary routes;
 - avatar navigation, facial mood, and hand raise;
 - dynamic Italian and English wake-phrase command parsing;

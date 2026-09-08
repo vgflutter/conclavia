@@ -85,6 +85,23 @@ function statusClass(status: MeetingResponse["status"]): string {
   return "bg-[#e4eee7] text-[#295c43]";
 }
 
+function isPastScheduled(meeting: MeetingResponse, now: number): boolean {
+  return meeting.status === "scheduled" && new Date(meeting.scheduledStart).getTime() < now;
+}
+
+function dashboardStatusLabel(locale: Locale, meeting: MeetingResponse, now: number): string {
+  if (isPastScheduled(meeting, now)) {
+    return locale === "it" ? "Data superata" : "Past date";
+  }
+  return meetingStatusLabel(locale, meeting.status);
+}
+
+function dashboardStatusClass(meeting: MeetingResponse, now: number): string {
+  return isPastScheduled(meeting, now)
+    ? "bg-amber-100 text-amber-800"
+    : statusClass(meeting.status);
+}
+
 function MeetingCard({ meeting, locale }: { meeting: MeetingResponse; locale: Locale }) {
   const isItalian = locale === "it";
 
@@ -148,8 +165,11 @@ function MeetingCard({ meeting, locale }: { meeting: MeetingResponse; locale: Lo
   );
 }
 
-function attentionReason(locale: Locale, meeting: MeetingResponse): string {
+function attentionReason(locale: Locale, meeting: MeetingResponse, now: number): string {
   const isItalian = locale === "it";
+  if (isPastScheduled(meeting, now)) {
+    return isItalian ? "Controlla il meeting non avviato" : "Review the meeting that did not start";
+  }
   if (meeting.status === "joining") {
     return isItalian ? "Sta entrando nel meeting" : "Joining the meeting";
   }
@@ -253,6 +273,7 @@ function AttentionSection({
   expanded,
   page,
   search,
+  referenceTime,
 }: {
   meetings: MeetingResponse[];
   total: number;
@@ -260,6 +281,7 @@ function AttentionSection({
   expanded: boolean;
   page: number;
   search: string;
+  referenceTime: number;
 }) {
   const isItalian = locale === "it";
 
@@ -287,8 +309,8 @@ function AttentionSection({
             >
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusClass(meeting.status)}`}>
-                    {meetingStatusLabel(locale, meeting.status)}
+                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${dashboardStatusClass(meeting, referenceTime)}`}>
+                    {dashboardStatusLabel(locale, meeting, referenceTime)}
                   </span>
                   {meeting.seriesLabel && (
                     <span className="truncate text-xs font-medium text-slate-400">
@@ -305,7 +327,7 @@ function AttentionSection({
               </div>
               <div className="flex items-center justify-between gap-4 sm:justify-end">
                 <span className="text-sm font-medium text-amber-800">
-                  {attentionReason(locale, meeting)}
+                  {attentionReason(locale, meeting, referenceTime)}
                 </span>
                 <span className="text-lg text-slate-300 transition group-hover:translate-x-1 group-hover:text-[#295c43]">→</span>
               </div>
@@ -377,18 +399,27 @@ function MeetingSeriesCard({
   series,
   meetings,
   locale,
+  referenceTime,
 }: {
   series: MeetingSeriesResponse;
   meetings: MeetingResponse[];
   locale: Locale;
+  referenceTime: number;
 }) {
   const isItalian = locale === "it";
-  const nextMeeting = meetings.find((meeting) => meeting.status === "scheduled");
+  const now = referenceTime;
+  const nextMeeting = meetings.find(
+    (meeting) => meeting.status === "scheduled" && !isPastScheduled(meeting, now),
+  );
+  const overdueMeeting = [...meetings]
+    .reverse()
+    .find((meeting) => isPastScheduled(meeting, now));
   const liveMeeting = meetings.find((meeting) =>
     ["joining", "waiting_room", "live", "processing", "failed"].includes(meeting.status),
   );
   const completedCount = meetings.filter((meeting) => meeting.status === "completed").length;
-  const status = liveMeeting?.status ?? nextMeeting?.status ?? "completed";
+  const highlightedMeeting = liveMeeting || overdueMeeting || nextMeeting;
+  const status = highlightedMeeting?.status ?? "completed";
 
   return (
     <Link
@@ -403,8 +434,10 @@ function MeetingSeriesCard({
               <span className="rounded-full bg-[#e4eee7] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-[#295c43]">
                 {isItalian ? "Serie" : "Series"}
               </span>
-              <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${statusClass(status)}`}>
-                {meetingStatusLabel(locale, status)}
+              <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${overdueMeeting && !liveMeeting ? "bg-amber-100 text-amber-800" : statusClass(status)}`}>
+                {overdueMeeting && !liveMeeting
+                  ? isItalian ? "Data superata" : "Past date"
+                  : meetingStatusLabel(locale, status)}
               </span>
             </div>
             <h3 className="mt-3 truncate text-lg font-semibold tracking-tight group-hover:text-[#295c43]">
@@ -422,6 +455,10 @@ function MeetingSeriesCard({
               ? isItalian
                 ? "Da gestire ora"
                 : "Needs attention now"
+              : overdueMeeting
+                ? isItalian
+                  ? "Appuntamento da controllare"
+                  : "Appointment to review"
               : nextMeeting
                 ? isItalian
                   ? "Prossimo appuntamento"
@@ -430,10 +467,10 @@ function MeetingSeriesCard({
                   ? "Serie completata"
                   : "Series completed"}
           </p>
-          {(liveMeeting || nextMeeting) && (
+          {highlightedMeeting && (
             <p className="mt-1 text-sm font-semibold text-slate-700">
               {formatMeetingDate(
-                (liveMeeting || nextMeeting)!.scheduledStart,
+                highlightedMeeting.scheduledStart,
                 locale,
                 series.timezone,
               )}
@@ -464,6 +501,7 @@ export default async function MeetingsPage({
   const view = selectedMeetingView(firstSearchParam(query.view));
   const page = selectedPage(firstSearchParam(query.page));
   const search = (firstSearchParam(query.q) || "").trim().slice(0, 120);
+  const now = new Date();
   const searchExpression = search ? escapeSearch(search) : "";
   const meetingSearchFilter: FilterQuery<MeetingRecord> = searchExpression
     ? {
@@ -490,10 +528,22 @@ export default async function MeetingsPage({
     ],
   };
   const attentionFilter: FilterQuery<MeetingRecord> = {
-    $and: [{ status: { $in: attentionStatuses } }, meetingSearchFilter],
+    $and: [
+      {
+        $or: [
+          { status: { $in: attentionStatuses } },
+          { status: "scheduled", scheduledStart: { $lt: now } },
+        ],
+      },
+      meetingSearchFilter,
+    ],
   };
   const upcomingFilter: FilterQuery<MeetingRecord> = {
-    $and: [standaloneFilter, { status: "scheduled" }, meetingSearchFilter],
+    $and: [
+      standaloneFilter,
+      { status: "scheduled", scheduledStart: { $gte: now } },
+      meetingSearchFilter,
+    ],
   };
   const historyFilter: FilterQuery<MeetingRecord> = {
     $and: [standaloneFilter, { status: { $in: ["completed", "cancelled"] } }, meetingSearchFilter],
@@ -633,6 +683,7 @@ export default async function MeetingsPage({
             expanded={false}
             page={1}
             search={search}
+            referenceTime={now.getTime()}
           />
         )}
 
@@ -644,6 +695,7 @@ export default async function MeetingsPage({
             expanded
             page={page}
             search={search}
+            referenceTime={now.getTime()}
           />
         )}
 
@@ -667,8 +719,9 @@ export default async function MeetingsPage({
                   <MeetingSeriesCard
                     key={item.id}
                     series={item}
-                    meetings={seriesMeetings.filter((meeting) => meeting.seriesId === item.id)}
-                    locale={locale}
+                  meetings={seriesMeetings.filter((meeting) => meeting.seriesId === item.id)}
+                  locale={locale}
+                  referenceTime={now.getTime()}
                   />
                 ))}
               </div>

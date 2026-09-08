@@ -393,6 +393,50 @@ test("dashboard: limita il centro attività e apre la vista completa", async ({
   }
 });
 
+test("dashboard: un meeting con data trascorsa non appare tra i prossimi", async ({
+  page,
+  request,
+}) => {
+  await useItalian(page);
+  const marker = Date.now().toString(36);
+  const title = `E2E Meeting passato ${marker}`;
+  let meetingId: string | undefined;
+
+  try {
+    const createResponse = await request.post("/api/meetings", {
+      data: {
+        title,
+        meetingUrl: `${teamLink}&past=${marker}`,
+        scheduledStart: futureLocalDateTime(-1),
+        durationMinutes: 60,
+        timezone: "Europe/Rome",
+        objective: "Verificare la classificazione temporale",
+        language: "auto",
+        autoJoin: false,
+        agenda: [],
+        correctionPolicy: "important_only",
+      },
+    });
+    expect(createResponse.status()).toBe(201);
+    const payload = (await createResponse.json()) as { meeting: { id: string } };
+    meetingId = payload.meeting.id;
+
+    await page.goto(`/meetings?view=upcoming&q=${encodeURIComponent(title)}`);
+    await expect(page.getByText(title, { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Nessun meeting corrisponde alla ricerca.")).toBeVisible();
+
+    await page.goto(`/meetings?view=attention&q=${encodeURIComponent(title)}`);
+    await expect(page.getByText(title, { exact: true })).toBeVisible();
+    await expect(page.getByText("Data superata", { exact: true })).toBeVisible();
+    await page.getByText(title, { exact: true }).click();
+    await expect(page.getByRole("heading", { name: title })).toBeVisible();
+    await expect(page.getByText("Data superata", { exact: true })).toBeVisible();
+    await expect(page.getByText(/L.orario è già passato e il meeting non risulta avviato/)).toBeVisible();
+  } finally {
+    await safeDelete(request, "meetings", meetingId);
+  }
+});
+
 test("interfaccia mobile: navigazione e azioni principali restano utilizzabili", async ({
   page,
 }) => {

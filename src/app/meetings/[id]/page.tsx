@@ -193,6 +193,9 @@ export default async function MeetingPage({ params }: MeetingPageProps) {
       new Date(meeting.scheduledStart).getTime()) /
       60_000,
   );
+  const meetingIsOverdue =
+    meeting.status === "scheduled" &&
+    new Date(meeting.scheduledStart).getTime() < new Date().getTime();
   const meetingInProgress = ["joining", "waiting_room", "live", "processing"].includes(
     meeting.status,
   );
@@ -232,15 +235,21 @@ export default async function MeetingPage({ params }: MeetingPageProps) {
         <div className="grid lg:grid-cols-[minmax(0,1fr)_19rem]">
           <div className="p-5 sm:p-7">
             <div className="flex flex-wrap items-center gap-2">
-              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusClass(meeting.status)}`}>
-                {meetingStatusLabel(locale, meeting.status)}
+              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${meetingIsOverdue ? "bg-amber-100 text-amber-800" : statusClass(meeting.status)}`}>
+                {meetingIsOverdue
+                  ? isItalian ? "Data superata" : "Past date"
+                  : meetingStatusLabel(locale, meeting.status)}
               </span>
               <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
                 {meetingPlatformLabel(meeting.platform, locale)}
               </span>
               {meeting.autoJoin && (
-                <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${["scheduling", "scheduled"].includes(meeting.bot.status) ? "bg-[#edf4ef] text-[#295c43]" : "bg-amber-50 text-amber-800"}`}>
-                  {["scheduling", "scheduled"].includes(meeting.bot.status)
+                <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${!meetingIsOverdue && ["scheduling", "scheduled"].includes(meeting.bot.status) ? "bg-[#edf4ef] text-[#295c43]" : "bg-amber-50 text-amber-800"}`}>
+                  {meetingIsOverdue
+                    ? isItalian
+                      ? "Ingresso non avvenuto"
+                      : "Join did not occur"
+                    : ["scheduling", "scheduled"].includes(meeting.bot.status)
                     ? meeting.bot.status === "scheduling"
                       ? isItalian
                         ? "Programmazione ingresso"
@@ -277,6 +286,13 @@ export default async function MeetingPage({ params }: MeetingPageProps) {
           </div>
 
           <aside className="border-t border-slate-100 bg-[#f8faf8] p-5 lg:border-l lg:border-t-0 sm:p-6">
+            {meetingIsOverdue && (
+              <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+                {isItalian
+                  ? "L’orario è già passato e il meeting non risulta avviato. Puoi aprire il link Teams oppure eliminare questo appuntamento."
+                  : "The scheduled time has passed and the meeting did not start. Open the Teams link or delete this appointment."}
+              </p>
+            )}
             <MeetingSessionControls
               meetingId={meeting.id}
               status={meeting.status}
